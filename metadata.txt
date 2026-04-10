@@ -1,0 +1,32 @@
+[general]
+name=Magic Search
+qgisMinimumVersion=3.16
+qgisMaximumVersion=3.99
+description=FR: Barre de recherche universelle - BAN + toutes les couches du projet
+    EN: Universal search bar - BAN geocoder + all project layers
+    ES: Barra de busqueda universal - BAN + todas las capas del proyecto
+    PT: Barra de pesquisa universal - BAN + todas as camadas do projeto
+    DE: Universelle Suchleiste - BAN Geocoder + alle Projektebenen
+about=FR: Recherchez simultanement dans les adresses BAN et dans tous les champs de toutes les couches de votre projet QGIS. Resultats groupes par source avec apercu geometrie au survol. Cache indexe pour des performances optimales.
+    EN: Search simultaneously in BAN addresses and all fields of all layers in your QGIS project. Results grouped by source with geometry preview on hover. Indexed cache for optimal performance.
+    ES: Busque simultaneamente en direcciones BAN y en todos los campos de todas las capas de su proyecto QGIS.
+    PT: Pesquise simultaneamente em enderecos BAN e em todos os campos de todas as camadas do seu projeto QGIS.
+    DE: Suchen Sie gleichzeitig in BAN-Adressen und in allen Feldern aller Ebenen Ihres QGIS-Projekts.
+version=1.0.0
+author=Yoan Laloux
+email=y.laloux@vichy-communaute.fr
+homepage=https://github.com/Cartoyoyo/magic-search
+tracker=https://github.com/Cartoyoyo/magic-search/issues
+repository=https://github.com/Cartoyoyo/magic-search
+license=GNU GPL v3
+icon=icon.png
+tags=search,geocoding,ban,address,layers,universal
+category=Search
+hasProcessingProvider=no
+changelog=1.0.0 - Initial release
+    - Universal search bar (BAN + OSM + project layers)
+    - Floating bar (Maps) and dockable panel (Qt5) UI styles
+    - Incremental indexing with compressed cache
+    - i18n: FR, EN, ES, PT, DE
+    - Configurable layer/field exclusions
+    - Geometry preview on hover
