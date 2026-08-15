@@ -28,9 +28,15 @@ class BanProvider(QObject):
         self._timer.timeout.connect(self._do_request)
         self._pending_query = ''
         self._enabled = True
+        self._postcode_filter = ''
 
     def set_enabled(self, enabled):
         self._enabled = enabled
+
+    def set_postcode_filter(self, postcode):
+        """Restreint les resultats BAN a un code postal (utile en zone a
+        toponymie ambigue entre communes voisines). Vide = pas de filtre."""
+        self._postcode_filter = (postcode or '').strip()
 
     def search(self, query):
         if not self._enabled or not query or len(query) < 3:
@@ -49,6 +55,8 @@ class BanProvider(QObject):
             self._reply.abort()
 
         url_str = BAN_URL.format(query=urllib.parse.quote(self._pending_query, safe=''))
+        if self._postcode_filter:
+            url_str += '&postcode=' + urllib.parse.quote(self._postcode_filter, safe='')
         url = QUrl(url_str)
         request = QNetworkRequest(url)
         self._reply = self._nam.get(request)

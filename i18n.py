@@ -135,6 +135,92 @@ TR = {
         'es': "Haga clic en el mapa para abrir {service}",
         'pt': "Clique no mapa para abrir {service}",
         'de': "Klicken Sie auf die Karte, um {service} zu oeffnen"},
+    'menu_copy_coords': {
+        'fr': "Copier les coordonnees",
+        'en': "Copy coordinates",
+        'es': "Copiar coordenadas",
+        'pt': "Copiar coordenadas",
+        'de': "Koordinaten kopieren"},
+    'msg_copy_coords_prompt': {
+        'fr': "Cliquez sur la carte pour copier ses coordonnees",
+        'en': "Click on the map to copy its coordinates",
+        'es': "Haga clic en el mapa para copiar sus coordenadas",
+        'pt': "Clique no mapa para copiar as coordenadas",
+        'de': "Klicken Sie auf die Karte, um ihre Koordinaten zu kopieren"},
+    'tip_more': {
+        'fr': "Plus d'outils (favoris, historique)",
+        'en': "More tools (favorites, history)",
+        'es': "Mas herramientas (favoritos, historial)",
+        'pt': "Mais ferramentas (favoritos, historico)",
+        'de': "Weitere Werkzeuge (Favoriten, Verlauf)"},
+    'tip_history': {
+        'fr': "Recherches recentes",
+        'en': "Recent searches",
+        'es': "Busquedas recientes",
+        'pt': "Pesquisas recentes",
+        'de': "Letzte Suchen"},
+    'history_empty': {
+        'fr': "(aucune recherche recente)",
+        'en': "(no recent search)",
+        'es': "(sin busquedas recientes)",
+        'pt': "(sem pesquisas recentes)",
+        'de': "(keine letzten Suchen)"},
+    'tip_favorites': {
+        'fr': "Favoris",
+        'en': "Favorites",
+        'es': "Favoritos",
+        'pt': "Favoritos",
+        'de': "Favoriten"},
+    'menu_add_favorite': {
+        'fr': "Ajouter un favori ici...",
+        'en': "Add a favorite here...",
+        'es': "Agregar un favorito aqui...",
+        'pt': "Adicionar um favorito aqui...",
+        'de': "Favorit hier hinzufuegen..."},
+    'menu_remove_favorite': {
+        'fr': "Supprimer un favori",
+        'en': "Remove a favorite",
+        'es': "Eliminar un favorito",
+        'pt': "Remover um favorito",
+        'de': "Favorit entfernen"},
+    'favorites_empty': {
+        'fr': "(aucun favori)",
+        'en': "(no favorite)",
+        'es': "(sin favoritos)",
+        'pt': "(sem favoritos)",
+        'de': "(keine Favoriten)"},
+    'favorite_dialog_title': {
+        'fr': "Nouveau favori",
+        'en': "New favorite",
+        'es': "Nuevo favorito",
+        'pt': "Novo favorito",
+        'de': "Neuer Favorit"},
+    'favorite_dialog_label': {
+        'fr': "Nom du favori :",
+        'en': "Favorite name:",
+        'es': "Nombre del favorito:",
+        'pt': "Nome do favorito:",
+        'de': "Name des Favoriten:"},
+    'msg_favorite_prompt': {
+        'fr': "Cliquez sur la carte pour enregistrer un favori",
+        'en': "Click on the map to save a favorite",
+        'es': "Haga clic en el mapa para guardar un favorito",
+        'pt': "Clique no mapa para guardar um favorito",
+        'de': "Klicken Sie auf die Karte, um einen Favoriten zu speichern"},
+    'msg_favorite_saved': {
+        'fr': "Favori \"{label}\" enregistre",
+        'en': "Favorite \"{label}\" saved",
+        'es': "Favorito \"{label}\" guardado",
+        'pt': "Favorito \"{label}\" guardado",
+        'de': "Favorit \"{label}\" gespeichert"},
+    'tag_coord': {
+        'fr': "COORD", 'en': "COORD", 'es': "COORD", 'pt': "COORD", 'de': "KOORD"},
+    'msg_coords_copied': {
+        'fr': "Coordonnees copiees dans le presse-papiers",
+        'en': "Coordinates copied to clipboard",
+        'es': "Coordenadas copiadas al portapapeles",
+        'pt': "Coordenadas copiadas para a area de transferencia",
+        'de': "Koordinaten in die Zwischenablage kopiert"},
 
     # ---- Etat du cache (dialogue de configuration) ----
     'cache_not_created': {

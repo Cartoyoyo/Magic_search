@@ -12,7 +12,7 @@ about=FR: Recherchez simultanement dans les adresses (BAN pour la France, OSM/No
     ES: Busque simultaneamente en direcciones (BAN en Francia, OSM/Nominatim en todo el mundo) y en todos los campos de todas las capas vectoriales de su proyecto QGIS. Dos estilos de interfaz: barra flotante o panel acoplable. Un boton "?" activa la geocodificacion inversa: clic en el mapa para mostrar la direccion BAN mas cercana (a menos de 25 m) en el campo de busqueda. Un menu "vista de calle" abre, al hacer clic en el mapa, la vista Google Street View/Mapillary/Panoramax/Bing Streetside del punto en el navegador. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
     PT: Pesquise simultaneamente em enderecos (BAN na Franca, OSM/Nominatim em todo o mundo) e em todos os campos de todas as camadas vetoriais do seu projeto QGIS. Dois estilos de interface: barra flutuante ou painel acoplavel. Um botao "?" ativa a geocodificacao inversa: clique no mapa para mostrar o endereco BAN mais proximo (a menos de 25 m) no campo de pesquisa. Um menu "vista de rua" abre, ao clicar no mapa, a vista Google Street View/Mapillary/Panoramax/Bing Streetside do ponto no navegador. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
     DE: Suchen Sie gleichzeitig in Adressen (BAN fur Frankreich, OSM/Nominatim weltweit) und in allen Feldern aller Vektorebenen Ihres QGIS-Projekts. Zwei Oberflachenstile: schwebende Leiste oder andockbares Panel. Eine Schaltflache "?" aktiviert die Rueckwaerts-Geokodierung: Klick auf die Karte zeigt die naechste BAN-Adresse (innerhalb von 25 m) direkt im Suchfeld. Ein "Strassenansicht"-Menue oeffnet beim Kartenklick die Google Street View/Mapillary/Panoramax/Bing-Streetside-Ansicht des Punkts im Browser. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
-version=1.3.0
+version=1.4.0
 author=Yoan Laloux
 email=y.laloux@vichy-communaute.fr
 homepage=https://github.com/Cartoyoyo/Magic_search
@@ -23,7 +23,16 @@ icon=icon.png
 tags=search,geocoding,ban,osm,nominatim,address,layers,universal,attribute,index
 category=Search
 hasProcessingProvider=no
-changelog=1.3.0
+changelog=1.4.0
+    - Recherche de coordonnees brutes (WGS84 decimal ou Lambert93) directement dans la barre, au meme titre que BAN/OSM/couches
+    - Nouvelle entree "Copier les coordonnees" dans le menu vue de rue (WGS84 + Lambert93 dans le presse-papiers)
+    - Rayon du geocodage inverse configurable (defaut 25 m) dans le dialogue de configuration
+    - Filtre BAN par code postal, configurable
+    - Bouton historique (5 dernieres recherches) et bouton favoris (points enregistres, zoom rapide) dans la barre de recherche
+    - Favoris et historique regroupes dans un menu "..." pour garder la barre compacte (la vue de rue garde son propre bouton)
+    - Le repere du dernier point interroge par le bouton "?" reste visible sur la carte
+    - Menus deroulants ("◎", "...") habilles avec la charte graphique de la barre flottante au lieu du style Qt generique
+    1.3.0
     - Nouveau bouton "vue de rue" (menu deroulant) dans la barre de recherche : Google Street View, Mapillary, Panoramax, Bing Streetside
     - Choisir un service puis cliquer sur la carte ouvre la vue de rue du point clique dans le navigateur par defaut
     1.2.0

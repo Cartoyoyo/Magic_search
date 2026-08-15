@@ -18,6 +18,7 @@ package "plugin_main" {
     - ban_reverse_provider : BanReverseProvider
     - reverse_tool : ReverseGeocodeTool
     - street_view_tool : StreetViewTool
+    - favorite_tool : FavoriteTool
     - _config : dict
     - _visible : bool
     __
@@ -27,6 +28,10 @@ package "plugin_main" {
     - _toggle_visibility(checked)
     - _toggle_reverse_tool(checked)
     - _activate_street_view(service)
+    - _activate_add_favorite()
+    - _on_favorite_point_picked(lon, lat)
+    - _remove_favorite(index)
+    - _push_favorites()
     - _on_map_tool_set(new_tool, old_tool)
     - _on_reverse_address_found(label)
     - _on_reverse_address_not_found(message)
@@ -84,20 +89,25 @@ package "core" {
   }
 
   class ReverseGeocodeTool {
-    + MAX_DISTANCE_M = 25
+    + DEFAULT_RADIUS_M = 25
     - _iface
     - _provider : BanReverseProvider
     - _rubber_band
+    - _radius_m : int
     __
+    + set_radius(radius_m)
     + canvasReleaseEvent(event)
-    + deactivate()
+    + clear_marker()
     - _on_result(data)
     __ signals __
     address_found(str)
     address_not_found(str)
+    __
+    (le repere du dernier clic reste visible\ntant que clear_marker() n'est pas appele)
   }
 
   class StreetViewTool {
+    + COPY_COORDS = 'copy_coords'
     + SERVICE_LABELS : dict
     + SERVICE_URLS : dict
     - _iface
@@ -106,7 +116,22 @@ package "core" {
     + set_service(service)
     + canvasReleaseEvent(event)
     __
-    (usage unique : ouvre l'URL du service\ndans le navigateur puis se desactive)
+    (usage unique : ouvre l'URL du service dans le\nnavigateur, ou copie WGS84+Lambert93 si\nservice == COPY_COORDS, puis se desactive)
+  }
+
+  class FavoriteTool {
+    - _iface
+    __
+    + canvasReleaseEvent(event)
+    __ signals __
+    point_picked(float lon, float lat)
+    __
+    (usage unique : emet le point WGS84 puis se desactive ;\nplugin_main demande le libelle via QInputDialog)
+  }
+
+  class "coord_parser" as coord_parser << (M,lightblue) module >> {
+    + parse_coordinates(text) : dict
+    + to_lonlat(coord) : (lon, lat)
   }
 }
 
@@ -115,10 +140,12 @@ package "providers" {
     - _nam : QgsNetworkAccessManager
     - _timer : QTimer
     - _enabled : bool
+    - _postcode_filter : str
     __
     + search(query)
     + cancel()
     + set_enabled(enabled)
+    + set_postcode_filter(postcode)
     - _do_request()
     - _on_finished()
     __ signals __
@@ -189,6 +216,10 @@ package "search_widget (UI style 'maps')" {
     - _collapsed_btn : CollapsedButton
     - _btn_reverse : QPushButton
     - _btn_street : QToolButton
+    - _btn_more : QToolButton
+    - _favorites : list
+    - _search_history : list
+    - _coord_result : dict
     - event_filter : StayOnTopEventFilter
     __
     + set_focus()
@@ -198,10 +229,14 @@ package "search_widget (UI style 'maps')" {
     + set_reverse_active(active)
     + show_reverse_address(label)
     + show_reverse_not_found(message)
+    + set_favorites(favorites)
     + cleanup()
-    - _on_text_changed(text)
+    - _on_text_changed(text) : detecte coord_parser.parse_coordinates
     - _update_dropdown()
     - _on_result_clicked(data)
+    - _push_history(text)
+    - _rebuild_more_menu()
+    - _zoom_to_favorite(fav)
     - _collapse() / _expand()
     - _set_input_style(muted)
     __ signals __
@@ -209,12 +244,14 @@ package "search_widget (UI style 'maps')" {
     sync_requested()
     reverse_toggled(bool)
     street_view_requested(str)
+    add_favorite_requested()
+    remove_favorite_requested(int)
   }
 
   class DropdownWidget {
     - _widgets : list
     __
-    + show_results(ban, osm, layer)
+    + show_results(ban, osm, layer, coord=None)
     + hide_results()
     __ signals __
     result_clicked(dict)
@@ -258,6 +295,10 @@ package "dock_widget (UI style 'qt5')" {
     - _widgets : list
     - _btn_reverse : QPushButton
     - _btn_street : QToolButton
+    - _btn_more : QToolButton
+    - _favorites : list
+    - _search_history : list
+    - _coord_result : dict
     __
     + set_focus()
     + set_opacity(opacity)
@@ -265,10 +306,14 @@ package "dock_widget (UI style 'qt5')" {
     + set_reverse_active(active)
     + show_reverse_address(label)
     + show_reverse_not_found(message)
+    + set_favorites(favorites)
     + cleanup()
-    - _on_text_changed(text)
+    - _on_text_changed(text) : detecte coord_parser.parse_coordinates
     - _update_list()
     - _on_result_clicked(data)
+    - _push_history(text)
+    - _rebuild_more_menu()
+    - _zoom_to_favorite(fav)
     - _update_sync_style(state)
     - _set_input_style(muted)
     __ signals __
@@ -276,6 +321,8 @@ package "dock_widget (UI style 'qt5')" {
     sync_requested()
     reverse_toggled(bool)
     street_view_requested(str)
+    add_favorite_requested()
+    remove_favorite_requested(int)
   }
 
   class ResultItemDock {
@@ -298,6 +345,8 @@ package "config_dialog" {
     - _config : dict
     - _layer_items : dict
     - _tree : QTreeWidget
+    - _input_postcode : QLineEdit
+    - _spin_radius : QSpinBox
     __
     + tr_(key)
     - _populate_layers_tree()
@@ -327,6 +376,7 @@ MagicSearch *-- LayerProvider
 MagicSearch *-- BanReverseProvider
 MagicSearch *-- ReverseGeocodeTool
 MagicSearch *-- StreetViewTool
+MagicSearch *-- FavoriteTool
 MagicSearch *-- "0..1" MagicSearchWidget : ui_style = maps
 MagicSearch *-- "0..1" MagicSearchDockWidget : ui_style = qt5
 MagicSearch ..> ConfigDialog : ouvre
@@ -339,6 +389,11 @@ MagicSearchWidget ..> ReverseGeocodeTool : reverse_toggled -> setMapTool
 MagicSearchDockWidget ..> ReverseGeocodeTool : reverse_toggled -> setMapTool
 MagicSearchWidget ..> StreetViewTool : street_view_requested -> setMapTool
 MagicSearchDockWidget ..> StreetViewTool : street_view_requested -> setMapTool
+MagicSearchWidget ..> FavoriteTool : add_favorite_requested -> setMapTool
+MagicSearchDockWidget ..> FavoriteTool : add_favorite_requested -> setMapTool
+MagicSearchWidget ..> coord_parser : parse_coordinates() / to_lonlat()
+MagicSearchDockWidget ..> coord_parser : parse_coordinates() / to_lonlat()
+coord_parser ..> geo_actions : to_wgs84() (Lambert93 -> WGS84)
 
 MagicSearchWidget --> IndexManager
 MagicSearchWidget --> BanProvider

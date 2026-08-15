@@ -8,7 +8,7 @@ import os
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QPushButton,
     QGroupBox, QScrollArea, QWidget, QSpinBox, QComboBox, QFrame,
-    QTreeWidget, QTreeWidgetItem
+    QTreeWidget, QTreeWidgetItem, QLineEdit
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QFont, QPixmap
@@ -130,6 +130,14 @@ TR = {
     'opacity': {
         'fr': "Opacite (0-100%)", 'en': "Opacity (0-100%)", 'es': "Opacidad (0-100%)",
         'pt': "Opacidade (0-100%)", 'de': "Deckkraft (0-100%)"},
+    'reverse_radius': {
+        'fr': "Rayon geocodage inverse (m)", 'en': "Reverse geocoding radius (m)",
+        'es': "Radio de geocodificacion inversa (m)", 'pt': "Raio de geocodificacao inversa (m)",
+        'de': "Radius Rueckwaerts-Geokodierung (m)"},
+    'ban_postcode': {
+        'fr': "Filtrer BAN par code postal", 'en': "Filter BAN by postcode",
+        'es': "Filtrar BAN por codigo postal", 'pt': "Filtrar BAN por codigo postal",
+        'de': "BAN nach Postleitzahl filtern"},
 }
 
 
@@ -319,6 +327,33 @@ class ConfigDialog(QDialog):
         geo_row.addStretch()
         gen_layout.addLayout(geo_row)
 
+        # Filtre code postal BAN (ligne)
+        postcode_row = QHBoxLayout()
+        postcode_row.setSpacing(6)
+        self._lbl_postcode = QLabel(self.tr_('ban_postcode'))
+        postcode_row.addWidget(self._lbl_postcode)
+        self._input_postcode = QLineEdit()
+        self._input_postcode.setPlaceholderText('ex: 03200')
+        self._input_postcode.setFixedWidth(80)
+        self._input_postcode.setText(self._config.get('ban_postcode', ''))
+        postcode_row.addWidget(self._input_postcode)
+        postcode_row.addStretch()
+        gen_layout.addLayout(postcode_row)
+
+        # Rayon geocodage inverse (ligne)
+        radius_row = QHBoxLayout()
+        radius_row.setSpacing(6)
+        self._lbl_radius = QLabel(self.tr_('reverse_radius'))
+        radius_row.addWidget(self._lbl_radius)
+        self._spin_radius = QSpinBox()
+        self._spin_radius.setMinimum(5)
+        self._spin_radius.setMaximum(500)
+        self._spin_radius.setValue(self._config.get('reverse_radius_m', 25))
+        self._spin_radius.setSuffix(' m')
+        radius_row.addWidget(self._spin_radius)
+        radius_row.addStretch()
+        gen_layout.addLayout(radius_row)
+
         # Opacite (ligne)
         opacity_row = QHBoxLayout()
         opacity_row.setSpacing(6)
@@ -455,6 +490,8 @@ class ConfigDialog(QDialog):
         self._combo_geocoder.setItemText(1, self.tr_('geocoder_osm'))
         self._combo_geocoder.setItemText(2, self.tr_('geocoder_none'))
         self._lbl_opacity.setText(self.tr_('opacity'))
+        self._lbl_postcode.setText(self.tr_('ban_postcode'))
+        self._lbl_radius.setText(self.tr_('reverse_radius'))
         self._layers_group.setTitle(self.tr_('layers_group'))
         self._cache_group.setTitle(self.tr_('cache_group'))
         self._lbl_cache.setText(self.tr_('cache_max'))
@@ -501,6 +538,8 @@ class ConfigDialog(QDialog):
             'geocoder': self._combo_geocoder.currentData(),
             'max_cache_mb': self._spin_cache.value(),
             'opacity': self._slider_opacity.value(),
+            'ban_postcode': self._input_postcode.text().strip(),
+            'reverse_radius_m': self._spin_radius.value(),
             'lang': self.lang,
             'layers': {},
         }

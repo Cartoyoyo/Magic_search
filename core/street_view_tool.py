@@ -2,13 +2,19 @@
 StreetViewTool - Outil carte active depuis le menu deroulant de la barre de
 recherche (bouton a cote du "?"). Un clic sur le canevas ouvre, dans le
 navigateur par defaut, la vue de rue du point clique sur le service choisi
-(Google Street View, Mapillary ou Panoramax). Usage unique : l'outil se
-desactive automatiquement apres chaque clic.
+(Google Street View, Mapillary, Panoramax ou Bing Streetside), ou copie ses
+coordonnees dans le presse-papiers (service 'copy_coords'). Usage unique :
+l'outil se desactive automatiquement apres chaque clic.
 """
 from qgis.PyQt.QtCore import QUrl
 from qgis.PyQt.QtGui import QDesktopServices
-from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+from qgis.PyQt.QtWidgets import QApplication
+from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject, Qgis
 from qgis.gui import QgsMapToolEmitPoint
+
+from ..i18n import tr
+
+COPY_COORDS = 'copy_coords'
 
 SERVICE_LABELS = {
     'google': 'Google Street View',
@@ -44,12 +50,27 @@ class StreetViewTool(QgsMapToolEmitPoint):
         point = self.toMapCoordinates(event.pos())
         canvas = self._iface.mapCanvas()
         crs_src = canvas.mapSettings().destinationCrs()
-        crs_dst = QgsCoordinateReferenceSystem('EPSG:4326')
-        transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance())
-        wgs84_point = transform.transform(point)
+        project = QgsProject.instance()
 
-        url_template = SERVICE_URLS.get(self._service, SERVICE_URLS['google'])
-        url = url_template.format(lat=wgs84_point.y(), lon=wgs84_point.x())
-        QDesktopServices.openUrl(QUrl(url))
+        wgs84 = QgsCoordinateTransform(
+            crs_src, QgsCoordinateReferenceSystem('EPSG:4326'), project
+        ).transform(point)
+
+        if self._service == COPY_COORDS:
+            lambert93 = QgsCoordinateTransform(
+                crs_src, QgsCoordinateReferenceSystem('EPSG:2154'), project
+            ).transform(point)
+            text = (
+                f"WGS84 : {wgs84.y():.6f}, {wgs84.x():.6f}\n"
+                f"Lambert93 : {lambert93.x():.1f}, {lambert93.y():.1f}"
+            )
+            QApplication.clipboard().setText(text)
+            self._iface.messageBar().pushMessage(
+                'Magic Search', tr('msg_coords_copied'), level=Qgis.Success, duration=4
+            )
+        else:
+            url_template = SERVICE_URLS.get(self._service, SERVICE_URLS['google'])
+            url = url_template.format(lat=wgs84.y(), lon=wgs84.x())
+            QDesktopServices.openUrl(QUrl(url))
 
         canvas.unsetMapTool(self)

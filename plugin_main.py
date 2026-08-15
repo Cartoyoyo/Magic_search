@@ -32,6 +32,7 @@ class MagicSearch:
         self.ban_reverse_provider = None
         self.reverse_tool = None
         self.street_view_tool = None
+        self.favorite_tool = None
         self._config = {}
         self._visible = False
         self.plugin_dir = os.path.dirname(__file__)
@@ -42,6 +43,7 @@ class MagicSearch:
         from .core.index_manager import IndexManager
         from .core.reverse_geocode_tool import ReverseGeocodeTool
         from .core.street_view_tool import StreetViewTool
+        from .core.favorite_tool import FavoriteTool
         from .providers.ban_provider import BanProvider, BanReverseProvider
         from .providers.osm_provider import OsmProvider
         from .providers.layer_provider import LayerProvider
@@ -55,6 +57,8 @@ class MagicSearch:
         self.reverse_tool.address_found.connect(self._on_reverse_address_found)
         self.reverse_tool.address_not_found.connect(self._on_reverse_address_not_found)
         self.street_view_tool = StreetViewTool(self.iface)
+        self.favorite_tool = FavoriteTool(self.iface)
+        self.favorite_tool.point_picked.connect(self._on_favorite_point_picked)
 
         self._apply_config()
         self.index_manager.start_indexing()
@@ -109,16 +113,57 @@ class MagicSearch:
             self.dock_widget.set_reverse_active(active)
 
     def _activate_street_view(self, service):
-        """Active l'outil de vue de rue pour le service choisi dans le menu
-        deroulant. Usage unique : l'outil se desactive apres le clic."""
-        from .core.street_view_tool import SERVICE_LABELS
+        """Active l'outil de vue de rue (ou de copie de coordonnees) pour le
+        choix fait dans le menu deroulant. Usage unique : l'outil se
+        desactive apres le clic."""
+        from .core.street_view_tool import SERVICE_LABELS, COPY_COORDS
         self.street_view_tool.set_service(service)
         self.iface.mapCanvas().setMapTool(self.street_view_tool)
+        if service == COPY_COORDS:
+            message = tr('msg_copy_coords_prompt')
+        else:
+            message = tr('msg_street_view_prompt', service=SERVICE_LABELS.get(service, service))
+        self.iface.messageBar().pushMessage('Magic Search', message, level=Qgis.Info, duration=4)
+
+    def _activate_add_favorite(self):
+        """Active l'outil "ajouter un favori" : le prochain clic sur la carte
+        declenche _on_favorite_point_picked."""
+        self.iface.mapCanvas().setMapTool(self.favorite_tool)
         self.iface.messageBar().pushMessage(
-            'Magic Search',
-            tr('msg_street_view_prompt', service=SERVICE_LABELS.get(service, service)),
-            level=Qgis.Info, duration=4
+            'Magic Search', tr('msg_favorite_prompt'), level=Qgis.Info, duration=4
         )
+
+    def _on_favorite_point_picked(self, lon, lat):
+        from qgis.PyQt.QtWidgets import QInputDialog
+        label, ok = QInputDialog.getText(
+            self.iface.mainWindow(), tr('favorite_dialog_title'), tr('favorite_dialog_label')
+        )
+        label = (label or '').strip()
+        if not ok or not label:
+            return
+        favorites = self._config.get('favorites', [])
+        favorites.append({'label': label, 'lon': lon, 'lat': lat})
+        self._config['favorites'] = favorites
+        self._save_config()
+        self._push_favorites()
+        self.iface.messageBar().pushMessage(
+            'Magic Search', tr('msg_favorite_saved', label=label), level=Qgis.Success, duration=4
+        )
+
+    def _remove_favorite(self, index):
+        favorites = self._config.get('favorites', [])
+        if 0 <= index < len(favorites):
+            del favorites[index]
+            self._config['favorites'] = favorites
+            self._save_config()
+            self._push_favorites()
+
+    def _push_favorites(self):
+        favorites = self._config.get('favorites', [])
+        if self.search_widget:
+            self.search_widget.set_favorites(favorites)
+        if self.dock_widget:
+            self.dock_widget.set_favorites(favorites)
 
     def _on_reverse_address_found(self, label):
         """Affiche l'adresse trouvee par l'outil "?" directement dans la barre
@@ -144,6 +189,8 @@ class MagicSearch:
             canvas.unsetMapTool(self.reverse_tool)
         if self.street_view_tool and canvas.mapTool() is self.street_view_tool:
             canvas.unsetMapTool(self.street_view_tool)
+        if self.favorite_tool and canvas.mapTool() is self.favorite_tool:
+            canvas.unsetMapTool(self.favorite_tool)
 
         if ui_style != 'maps' and self.search_widget:
             self.search_widget.cleanup()
@@ -170,6 +217,9 @@ class MagicSearch:
                 self.search_widget.sync_requested.connect(self._force_reindex)
                 self.search_widget.reverse_toggled.connect(self._toggle_reverse_tool)
                 self.search_widget.street_view_requested.connect(self._activate_street_view)
+                self.search_widget.add_favorite_requested.connect(self._activate_add_favorite)
+                self.search_widget.remove_favorite_requested.connect(self._remove_favorite)
+                self.search_widget.set_favorites(self._config.get('favorites', []))
             self.search_widget.setVisible(self._visible)
 
         else:  # qt5
@@ -188,6 +238,9 @@ class MagicSearch:
                 self.dock_widget.sync_requested.connect(self._force_reindex)
                 self.dock_widget.reverse_toggled.connect(self._toggle_reverse_tool)
                 self.dock_widget.street_view_requested.connect(self._activate_street_view)
+                self.dock_widget.add_favorite_requested.connect(self._activate_add_favorite)
+                self.dock_widget.remove_favorite_requested.connect(self._remove_favorite)
+                self.dock_widget.set_favorites(self._config.get('favorites', []))
 
             self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
             self.dock_widget.set_opacity(self._config.get('opacity', 100))
@@ -220,12 +273,18 @@ class MagicSearch:
             canvas = self.iface.mapCanvas()
             if canvas.mapTool() is self.reverse_tool:
                 canvas.unsetMapTool(self.reverse_tool)
+            self.reverse_tool.clear_marker()
             self.reverse_tool = None
         if self.street_view_tool:
             canvas = self.iface.mapCanvas()
             if canvas.mapTool() is self.street_view_tool:
                 canvas.unsetMapTool(self.street_view_tool)
             self.street_view_tool = None
+        if self.favorite_tool:
+            canvas = self.iface.mapCanvas()
+            if canvas.mapTool() is self.favorite_tool:
+                canvas.unsetMapTool(self.favorite_tool)
+            self.favorite_tool = None
 
         if self.action_toggle:
             self.iface.removeToolBarIcon(self.action_toggle)
@@ -301,8 +360,11 @@ class MagicSearch:
         geocoder = self._config.get('geocoder', 'ban')
         if self.ban_provider:
             self.ban_provider.set_enabled(geocoder == 'ban')
+            self.ban_provider.set_postcode_filter(self._config.get('ban_postcode', ''))
         if self.osm_provider:
             self.osm_provider.set_enabled(geocoder == 'osm')
+        if self.reverse_tool:
+            self.reverse_tool.set_radius(self._config.get('reverse_radius_m', 25))
 
         if self.index_manager:
             self.index_manager.set_config(
@@ -347,6 +409,7 @@ class MagicSearch:
         if self.index_manager:
             self.index_manager.start_indexing()
         self._build_ui()
+        self._push_favorites()
         if self.action_toggle:
             self.action_toggle.setChecked(self._visible)
 

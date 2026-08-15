@@ -53,6 +53,18 @@ def transform_point(iface, lon, lat):
     return transform.transform(QgsPointXY(lon, lat))
 
 
+def to_wgs84(x, y, crs_epsg):
+    """Convertit un point (x, y) depuis crs_epsg (ex: 'EPSG:2154') vers
+    WGS84. Retourne (lon, lat). Utilise par la recherche de coordonnees
+    (core/coord_parser.py) pour ramener toute saisie vers le format commun
+    attendu par zoom_to_point/transform_point."""
+    crs_src = QgsCoordinateReferenceSystem(crs_epsg)
+    crs_dst = QgsCoordinateReferenceSystem('EPSG:4326')
+    transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance())
+    point = transform.transform(QgsPointXY(x, y))
+    return point.x(), point.y()
+
+
 def zoom_to_point(iface, lon, lat, scale=1000):
     """Centre/zoome le canevas sur un point WGS84 (lon, lat). Retourne le point transforme."""
     canvas = iface.mapCanvas()

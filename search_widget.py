@@ -18,7 +18,8 @@ from qgis.PyQt.QtGui import QColor, QCursor, QPainter, QPen, QBrush, QPixmap
 
 from .ui_common import StayOnTopEventFilter
 from .core import geo_actions
-from .core.street_view_tool import SERVICE_LABELS
+from .core.street_view_tool import SERVICE_LABELS, COPY_COORDS
+from .core.coord_parser import parse_coordinates, to_lonlat as coord_to_lonlat
 from .i18n import tr
 
 TAG = 'Magic Search'
@@ -35,6 +36,38 @@ COLOR_HIGHLIGHT = '#ff00ff'
 
 # Couleurs de couches et actions geo (zoom/surbrillance) : voir core/geo_actions.py
 _color_for_layer = geo_actions.color_for_layer
+
+# QSS des menus deroulants ("◎" / "⋮" et leurs sous-menus) : par defaut Qt les
+# dessine avec le style natif de l'OS (blanc generique), en rupture avec la
+# barre flottante habillee sur-mesure. Applique une seule fois sur les menus
+# racine ("◎", "⋮") : les sous-menus (Favoris, Supprimer, Historique...) sont
+# des enfants Qt et heritent du style en cascade.
+MENU_QSS = f"""
+    QMenu {{
+        background: white;
+        border: 1.5px solid {VC_NAVY};
+        border-radius: 8px;
+        padding: 4px;
+    }}
+    QMenu::item {{
+        padding: 6px 22px 6px 12px;
+        border-radius: 5px;
+        color: {COLOR_TEXT};
+        font-size: 11px;
+    }}
+    QMenu::item:selected {{
+        background: {COLOR_HOVER};
+        color: {VC_NAVY};
+    }}
+    QMenu::item:disabled {{
+        color: {COLOR_MUTED};
+    }}
+    QMenu::separator {{
+        height: 1px;
+        background: {COLOR_BORDER};
+        margin: 4px 8px;
+    }}
+"""
 
 SEARCH_BAR_W = 500
 SEARCH_BAR_H = 40
@@ -143,6 +176,10 @@ class ResultItem(QFrame):
             tag_bg = '#fef3c7'
             tag_color = '#92400e'
             border_color = '#f59e0b'
+        elif source == 'coord':
+            tag_bg = '#e0e7ff'
+            tag_color = VC_NAVY
+            border_color = VC_NAVY
         else:
             layer_id = data.get('layer_id', '')
             tag_bg, tag_color = _color_for_layer(layer_id)
@@ -172,7 +209,7 @@ class ResultItem(QFrame):
 
         tag_font_size = max(6, font_size - 3)
 
-        if source in ('ban', 'osm'):
+        if source in ('ban', 'osm', 'coord'):
             lbl_main = QLabel(data.get('label', ''))
             lbl_main.setStyleSheet(f'color: {COLOR_TEXT}; font-size: {font_size}px; border: none;')
             content.addWidget(lbl_main)
@@ -191,6 +228,8 @@ class ResultItem(QFrame):
             tag_text = 'BAN'
         elif source == 'osm':
             tag_text = 'OSM'
+        elif source == 'coord':
+            tag_text = tr('tag_coord')
         else:
             layer_name = data.get('layer_name', '')
             field_name = data.get('field_name', '')
@@ -281,12 +320,12 @@ class DropdownWidget(QFrame):
 
     MAX_RESULTS = 15
 
-    def show_results(self, ban_results, osm_results, layer_results):
+    def show_results(self, ban_results, osm_results, layer_results, coord_result=None):
         self._clear()
         has_any = False
         shown = 0
 
-        geocode_results = len(ban_results) + len(osm_results)
+        geocode_results = len(ban_results) + len(osm_results) + (1 if coord_result else 0)
 
         # --- Compter les items pour calculer la hauteur disponible par ligne ---
         item_count = min(geocode_results, self.MAX_RESULTS)
@@ -309,6 +348,18 @@ class DropdownWidget(QFrame):
         font_size = max(7, min(11, int(item_h_actual * 0.45)))
         tag_expand_font = max(5, font_size - 2)
         total_h = 8
+
+        if coord_result:
+            has_any = True
+            item_data = {**coord_result, 'source': 'coord'}
+            item = ResultItem(item_data, font_size=font_size, opacity=self._opacity)
+            item.clicked.connect(self.result_clicked.emit)
+            item.hovered.connect(self.result_hovered.emit)
+            item.unhovered.connect(self.result_unhovered.emit)
+            self._main_layout.addWidget(item)
+            self._widgets.append(item)
+            total_h += self.ITEM_H
+            shown += 1
 
         for r in ban_results:
             if shown >= self.MAX_RESULTS:
@@ -440,6 +491,8 @@ class MagicSearchWidget(QDialog):
     sync_requested = pyqtSignal()
     reverse_toggled = pyqtSignal(bool)
     street_view_requested = pyqtSignal(str)
+    add_favorite_requested = pyqtSignal()
+    remove_favorite_requested = pyqtSignal(int)
 
     def __init__(self, iface, index_manager, ban_provider, osm_provider, layer_provider, parent=None, opacity=100):
         main_win = iface.mainWindow()
@@ -460,6 +513,7 @@ class MagicSearchWidget(QDialog):
         self._ban_results = []
         self._osm_results = []
         self._layer_results = []
+        self._coord_result = None
         self._collapsed = False
         self._custom_pos = None
         self._dragging = False
@@ -544,20 +598,41 @@ class MagicSearchWidget(QDialog):
         bar_layout.addWidget(self._btn_reverse)
 
         self._btn_street = QToolButton()
-        self._btn_street.setText('\u25ce')
+        self._btn_street.setText('◎')
         self._btn_street.setPopupMode(QToolButton.InstantPopup)
         self._btn_street.setFixedSize(26, 26)
         self._btn_street.setCursor(QCursor(Qt.PointingHandCursor))
         self._btn_street.setToolTip(tr('tip_street_view'))
         self._update_street_style()
         street_menu = QMenu(self._btn_street)
+        street_menu.setStyleSheet(MENU_QSS)
         for service_key in ('google', 'mapillary', 'panoramax', 'bing'):
             act = street_menu.addAction(SERVICE_LABELS[service_key])
             act.triggered.connect(
                 lambda checked=False, s=service_key: self.street_view_requested.emit(s)
             )
+        street_menu.addSeparator()
+        act_copy = street_menu.addAction(tr('menu_copy_coords'))
+        act_copy.triggered.connect(
+            lambda checked=False: self.street_view_requested.emit(COPY_COORDS)
+        )
         self._btn_street.setMenu(street_menu)
         bar_layout.addWidget(self._btn_street)
+
+        self._favorites = []
+        self._search_history = []
+        self._btn_more = QToolButton()
+        self._btn_more.setText('\u22ee')
+        self._btn_more.setPopupMode(QToolButton.InstantPopup)
+        self._btn_more.setFixedSize(26, 26)
+        self._btn_more.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_more.setToolTip(tr('tip_more'))
+        self._update_more_style()
+        self._more_menu = QMenu(self._btn_more)
+        self._more_menu.setStyleSheet(MENU_QSS)
+        self._more_menu.aboutToShow.connect(self._rebuild_more_menu)
+        self._btn_more.setMenu(self._more_menu)
+        bar_layout.addWidget(self._btn_more)
 
         self._btn_config = QPushButton('\u2699')
         self._btn_config.setFixedSize(26, 26)
@@ -708,6 +783,71 @@ class MagicSearchWidget(QDialog):
             QToolButton:hover {{ background: #f1f5f9; color: {VC_NAVY}; }}
         """)
 
+    def _update_more_style(self):
+        self._btn_more.setStyleSheet(f"""
+            QToolButton {{
+                background: transparent; border: none;
+                font-size: 15px; font-weight: bold; color: {COLOR_MUTED}; border-radius: 13px;
+            }}
+            QToolButton::menu-indicator {{ image: none; width: 0; }}
+            QToolButton:hover {{ background: #f1f5f9; color: {VC_NAVY}; }}
+        """)
+
+    def set_favorites(self, favorites):
+        self._favorites = favorites or []
+
+    def _push_history(self, text):
+        text = text.strip()
+        if not text or len(text) < 2:
+            return
+        if text in self._search_history:
+            self._search_history.remove(text)
+        self._search_history.insert(0, text)
+        self._search_history = self._search_history[:5]
+
+    def _rebuild_more_menu(self):
+        """Reconstruit le menu "⋮" a chaque ouverture : Favoris / Recherches
+        recentes, regroupes derriere un seul bouton pour garder la barre
+        compacte (la vue de rue garde son propre bouton "◎")."""
+        self._more_menu.clear()
+
+        fav_menu = self._more_menu.addMenu(tr('tip_favorites'))
+        fav_menu.setStyleSheet(MENU_QSS)
+        if self._favorites:
+            for fav in self._favorites:
+                act = fav_menu.addAction(fav.get('label', ''))
+                act.triggered.connect(lambda checked=False, f=fav: self._zoom_to_favorite(f))
+            fav_menu.addSeparator()
+        else:
+            act = fav_menu.addAction(tr('favorites_empty'))
+            act.setEnabled(False)
+            fav_menu.addSeparator()
+        act_add = fav_menu.addAction(tr('menu_add_favorite'))
+        act_add.triggered.connect(lambda checked=False: self.add_favorite_requested.emit())
+        if self._favorites:
+            remove_menu = fav_menu.addMenu(tr('menu_remove_favorite'))
+            remove_menu.setStyleSheet(MENU_QSS)
+            for idx, fav in enumerate(self._favorites):
+                act = remove_menu.addAction(fav.get('label', ''))
+                act.triggered.connect(
+                    lambda checked=False, i=idx: self.remove_favorite_requested.emit(i)
+                )
+
+        hist_menu = self._more_menu.addMenu(tr('tip_history'))
+        hist_menu.setStyleSheet(MENU_QSS)
+        if self._search_history:
+            for query in self._search_history:
+                act = hist_menu.addAction(query)
+                act.triggered.connect(lambda checked=False, q=query: self._input.setText(q))
+        else:
+            act = hist_menu.addAction(tr('history_empty'))
+            act.setEnabled(False)
+
+    def _zoom_to_favorite(self, fav):
+        self._clear_rubber_band()
+        point = geo_actions.zoom_to_point(self._iface, fav['lon'], fav['lat'])
+        self._rubber_band = geo_actions.make_point_rubber(self._iface.mapCanvas(), point)
+
     def _update_bar_style(self):
         alpha = int(255 * (self._opacity / 100.0))
         self._bar.setStyleSheet(f"""
@@ -749,6 +889,7 @@ class MagicSearchWidget(QDialog):
         self._btn_clear.setToolTip(tr('tip_clear'))
         self._btn_reverse.setToolTip(tr('tip_reverse_geocode'))
         self._btn_street.setToolTip(tr('tip_street_view'))
+        self._btn_more.setToolTip(tr('tip_more'))
         self._btn_config.setToolTip(tr('tip_config'))
         self._btn_collapse.setToolTip(tr('tip_collapse'))
         self._update_sync_style(self._sync_state)
@@ -980,9 +1121,26 @@ class MagicSearchWidget(QDialog):
             self._ban_results = []
             self._osm_results = []
             self._layer_results = []
+            self._coord_result = None
             self._ban_provider.cancel()
             self._osm_provider.cancel()
             return
+
+        coord = parse_coordinates(text)
+        if coord:
+            lon, lat = coord_to_lonlat(coord)
+            coord['lon'], coord['lat'] = lon, lat
+            self._layer_search_debounce.stop()
+            self._ban_provider.cancel()
+            self._osm_provider.cancel()
+            self._ban_results = []
+            self._osm_results = []
+            self._layer_results = []
+            self._coord_result = coord
+            self._update_dropdown()
+            return
+
+        self._coord_result = None
         self._ban_provider.search(text)
         self._osm_provider.search(text)
         self._layer_search_debounce.start()
@@ -1011,7 +1169,9 @@ class MagicSearchWidget(QDialog):
         if not text or len(text) < 2:
             return
 
-        self._dropdown.show_results(self._ban_results, self._osm_results, self._layer_results)
+        self._dropdown.show_results(
+            self._ban_results, self._osm_results, self._layer_results, self._coord_result
+        )
         self.adjustSize()
         self._update_sub_widgets_pos()
 
@@ -1029,17 +1189,19 @@ class MagicSearchWidget(QDialog):
     def _on_result_clicked(self, data):
         self._clear_rubber_band()
         source = data.get('source', '')
-        if source in ('ban', 'osm'):
+        if source in ('ban', 'osm', 'coord'):
             self._zoom_to_ban(data)
         elif source in ('layer', 'layer_group'):
             self._zoom_to_features(data)
+        if source in ('ban', 'osm', 'layer', 'layer_group'):
+            self._push_history(self._input.text())
         self._hide_dropdown()
         self._input.clear()
 
     def _on_result_hovered(self, data):
         self._clear_rubber_band()
         source = data.get('source', '')
-        if source in ('ban', 'osm'):
+        if source in ('ban', 'osm', 'coord'):
             self._highlight_ban(data)
         elif source == 'layer':
             self._highlight_features(data)
