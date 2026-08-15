@@ -1,0 +1,27 @@
+name: Publish to plugins.qgis.org
+
+# Se declenche uniquement sur un tag de version (ex: v1.2.0), jamais sur un
+# simple push vers main. Le tag doit correspondre exactement a la version
+# declaree dans metadata.txt (verifie par scripts/publish_qgis.py) :
+#   git tag v1.2.0
+#   git push origin v1.2.0
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Publier sur plugins.qgis.org
+        env:
+          OSGEO_USERNAME: ${{ secrets.OSGEO_USERNAME }}
+          OSGEO_PASSWORD: ${{ secrets.OSGEO_PASSWORD }}
+        run: python scripts/publish_qgis.py
