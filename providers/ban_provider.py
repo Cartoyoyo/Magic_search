@@ -11,6 +11,7 @@ from qgis.core import QgsMessageLog, QgsNetworkAccessManager, Qgis
 
 
 BAN_URL = 'https://api-adresse.data.gouv.fr/search/?q={query}&limit=3'
+BAN_REVERSE_URL = 'https://api-adresse.data.gouv.fr/reverse/?lon={lon}&lat={lat}&limit=1'
 DEBOUNCE_MS = 1000
 TAG = 'Magic Search'
 
@@ -92,6 +93,70 @@ class BanProvider(QObject):
         except Exception as e:
             QgsMessageLog.logMessage(f"BAN parse error: {e}", TAG, Qgis.Warning)
             self.results_ready.emit([])
+
+        finally:
+            reply.deleteLater()
+            self._reply = None
+
+
+class BanReverseProvider(QObject):
+    """Geocodage inverse BAN : trouve l'adresse la plus proche d'un point (lon, lat).
+    Utilise pour l'outil "?" de la barre d'outils (clic sur la carte)."""
+
+    result_ready = pyqtSignal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._nam = QgsNetworkAccessManager.instance()
+        self._reply = None
+
+    def reverse(self, lon, lat):
+        if self._reply and self._reply.isRunning():
+            self._reply.abort()
+
+        url_str = BAN_REVERSE_URL.format(lon=lon, lat=lat)
+        request = QNetworkRequest(QUrl(url_str))
+        self._reply = self._nam.get(request)
+        self._reply.finished.connect(self._on_finished)
+
+    def _on_finished(self):
+        reply = self._reply
+        if reply is None:
+            return
+
+        if reply.error() != QNetworkReply.NoError:
+            QgsMessageLog.logMessage(
+                f"BAN reverse error: {reply.error()} - {reply.errorString()}",
+                TAG, Qgis.Warning
+            )
+            reply.deleteLater()
+            self._reply = None
+            self.result_ready.emit({})
+            return
+
+        try:
+            raw = reply.readAll()
+            text = raw.data().decode('utf-8')
+            data = json.loads(text)
+            features = data.get('features', [])
+
+            if not features:
+                self.result_ready.emit({})
+            else:
+                props = features[0].get('properties', {})
+                coords = features[0].get('geometry', {}).get('coordinates', [0, 0])
+                self.result_ready.emit({
+                    'label': props.get('label', ''),
+                    'city': props.get('city', ''),
+                    'postcode': props.get('postcode', ''),
+                    'distance': props.get('distance', 0),
+                    'lon': coords[0],
+                    'lat': coords[1],
+                })
+
+        except Exception as e:
+            QgsMessageLog.logMessage(f"BAN reverse parse error: {e}", TAG, Qgis.Warning)
+            self.result_ready.emit({})
 
         finally:
             reply.deleteLater()

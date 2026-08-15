@@ -35,6 +35,25 @@ def normalize_text(text):
     return text.lower()
 
 
+def _layer_name_score(layer_name, q):
+    """Score de pertinence entre la requete et le nom de la couche (plus bas = mieux).
+    Permet de faire remonter une couche dont le nom correspond, ex: taper
+    'parcelle' fait remonter la couche 'Parcelle agglo' en priorite."""
+    norm_name = normalize_text(layer_name)
+    if norm_name == q:
+        return 0
+    if norm_name.startswith(q):
+        return 1
+    tokens = norm_name.replace('-', ' ').replace('_', ' ').split()
+    if any(t == q for t in tokens):
+        return 2
+    if any(t.startswith(q) for t in tokens):
+        return 3
+    if q in norm_name:
+        return 4
+    return 5
+
+
 def _layer_fingerprint(layer):
     """Hash rapide pour detecter les changements sur une couche."""
     source = layer.source()
@@ -262,7 +281,8 @@ class IndexManager(QObject):
             self._set_sync_state(self.SYNC_NEVER)
 
     def search(self, query, max_per_field=5):
-        """Recherche dans l'index. Retourne les resultats groupes."""
+        """Recherche dans l'index. Retourne les resultats groupes,
+        tries par pertinence (nom de couche pertinent + qualite du match en premier)."""
         if not query or len(query) < 2:
             return []
 
@@ -271,6 +291,7 @@ class IndexManager(QObject):
 
         for layer_id, layer_data in self._index.items():
             layer_name = layer_data['name']
+            layer_score = _layer_name_score(layer_name, q)
             for field_name, values in layer_data['fields'].items():
                 matches = []
                 for norm_val, val_data in values.items():
@@ -298,8 +319,11 @@ class IndexManager(QObject):
                         'field_name': field_name,
                         'matches': matches[:max_per_field],
                         'total_matches': len(matches),
+                        'layer_score': layer_score,
+                        'best_match_score': sort_key(matches[0]),
                     })
 
+        results.sort(key=lambda r: (r['layer_score'], r['best_match_score'], -r['total_matches']))
         return results
 
     def reindex_layer(self, layer_id):

@@ -15,6 +15,8 @@ package "plugin_main" {
     - ban_provider : BanProvider
     - osm_provider : OsmProvider
     - layer_provider : LayerProvider
+    - ban_reverse_provider : BanReverseProvider
+    - reverse_tool : ReverseGeocodeTool
     - _config : dict
     - _visible : bool
     __
@@ -22,6 +24,10 @@ package "plugin_main" {
     + unload()
     - _build_ui()
     - _toggle_visibility(checked)
+    - _toggle_reverse_tool(checked)
+    - _on_map_tool_set(new_tool, old_tool)
+    - _on_reverse_address_found(label)
+    - _on_reverse_address_not_found(message)
     - _focus_search()
     - _open_config()
     - _apply_config()
@@ -74,6 +80,20 @@ package "core" {
     + make_features_rubber(iface, layer_id, fids, color, max_features)
     + clear_rubber(rubber_band)
   }
+
+  class ReverseGeocodeTool {
+    + MAX_DISTANCE_M = 25
+    - _iface
+    - _provider : BanReverseProvider
+    - _rubber_band
+    __
+    + canvasReleaseEvent(event)
+    + deactivate()
+    - _on_result(data)
+    __ signals __
+    address_found(str)
+    address_not_found(str)
+  }
 }
 
 package "providers" {
@@ -112,6 +132,15 @@ package "providers" {
     __ signals __
     results_ready(list)
   }
+
+  class BanReverseProvider {
+    - _nam : QgsNetworkAccessManager
+    __
+    + reverse(lon, lat)
+    - _on_finished()
+    __ signals __
+    result_ready(dict)
+  }
 }
 
 package "ui_common" {
@@ -144,20 +173,26 @@ package "search_widget (UI style 'maps')" {
     - _layer_provider : LayerProvider
     - _dropdown : DropdownWidget
     - _collapsed_btn : CollapsedButton
+    - _btn_reverse : QPushButton
     - event_filter : StayOnTopEventFilter
     __
     + set_focus()
     + set_opacity(opacity)
     + retranslate()
     + reset_position()
+    + set_reverse_active(active)
+    + show_reverse_address(label)
+    + show_reverse_not_found(message)
     + cleanup()
     - _on_text_changed(text)
     - _update_dropdown()
     - _on_result_clicked(data)
     - _collapse() / _expand()
+    - _set_input_style(muted)
     __ signals __
     config_requested()
     sync_requested()
+    reverse_toggled(bool)
   }
 
   class DropdownWidget {
@@ -205,18 +240,24 @@ package "dock_widget (UI style 'qt5')" {
     - _layer_provider : LayerProvider
     - event_filter : StayOnTopEventFilter
     - _widgets : list
+    - _btn_reverse : QPushButton
     __
     + set_focus()
     + set_opacity(opacity)
     + retranslate()
+    + set_reverse_active(active)
+    + show_reverse_address(label)
+    + show_reverse_not_found(message)
     + cleanup()
     - _on_text_changed(text)
     - _update_list()
     - _on_result_clicked(data)
     - _update_sync_style(state)
+    - _set_input_style(muted)
     __ signals __
     config_requested()
     sync_requested()
+    reverse_toggled(bool)
   }
 
   class ResultItemDock {
@@ -265,11 +306,18 @@ MagicSearch *-- IndexManager
 MagicSearch *-- BanProvider
 MagicSearch *-- OsmProvider
 MagicSearch *-- LayerProvider
+MagicSearch *-- BanReverseProvider
+MagicSearch *-- ReverseGeocodeTool
 MagicSearch *-- "0..1" MagicSearchWidget : ui_style = maps
 MagicSearch *-- "0..1" MagicSearchDockWidget : ui_style = qt5
 MagicSearch ..> ConfigDialog : ouvre
 
 LayerProvider --> IndexManager : delegue recherche
+ReverseGeocodeTool --> BanReverseProvider
+ReverseGeocodeTool ..> geo_actions : repere sur clic
+ReverseGeocodeTool ..> i18n_mod : tr() (message non trouve)
+MagicSearchWidget ..> ReverseGeocodeTool : reverse_toggled -> setMapTool
+MagicSearchDockWidget ..> ReverseGeocodeTool : reverse_toggled -> setMapTool
 
 MagicSearchWidget --> IndexManager
 MagicSearchWidget --> BanProvider

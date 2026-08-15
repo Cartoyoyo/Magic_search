@@ -168,6 +168,7 @@ class MagicSearchDockWidget(QDockWidget):
 
     config_requested = pyqtSignal()
     sync_requested = pyqtSignal()
+    reverse_toggled = pyqtSignal(bool)
 
     def __init__(self, iface, index_manager, ban_provider, osm_provider, layer_provider, parent=None):
         super().__init__("Magic Search", parent)
@@ -218,14 +219,7 @@ class MagicSearchDockWidget(QDockWidget):
 
         self._input = QLineEdit()
         self._input.setPlaceholderText(tr('placeholder'))
-        self._input.setStyleSheet("""
-            QLineEdit {
-                background: white; border: 1px solid #cbd5e1;
-                border-radius: 6px; padding: 8px 12px;
-                font-size: 12px; color: #334155;
-            }
-            QLineEdit:focus { border: 1px solid #00a096; }
-        """)
+        self._set_input_style(muted=False)
         self._input.textChanged.connect(self._on_text_changed)
         input_layout.addWidget(self._input)
 
@@ -243,6 +237,16 @@ class MagicSearchDockWidget(QDockWidget):
         self._btn_clear.clicked.connect(lambda: self._input.clear())
         self._btn_clear.hide()
         input_layout.addWidget(self._btn_clear)
+
+        # Bouton geocodage inverse (adresse BAN la plus proche au clic)
+        self._btn_reverse = QPushButton('?')
+        self._btn_reverse.setFixedSize(24, 24)
+        self._btn_reverse.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_reverse.setCheckable(True)
+        self._btn_reverse.setToolTip(tr('tip_reverse_geocode'))
+        self._update_reverse_style()
+        self._btn_reverse.toggled.connect(self.reverse_toggled.emit)
+        input_layout.addWidget(self._btn_reverse)
 
         # Bouton synchronisation
         self._btn_sync = QPushButton('\u27F3')
@@ -300,6 +304,43 @@ class MagicSearchDockWidget(QDockWidget):
         self._layer_search_debounce.setInterval(LAYER_SEARCH_DEBOUNCE_MS)
         self._layer_search_debounce.timeout.connect(self._do_layer_search)
 
+    def _update_reverse_style(self):
+        self._btn_reverse.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none;
+                font-size: 13px; font-weight: bold; color: #64748b; border-radius: 12px;
+            }}
+            QPushButton:hover {{ background: #f1f5f9; color: {VC_NAVY}; }}
+            QPushButton:checked {{ background: {VC_TURQUOISE}; color: white; }}
+        """)
+
+    def set_reverse_active(self, active):
+        """Synchronise le bouton "?" avec l'etat reel de l'outil de carte
+        (ex: decoche si l'utilisateur bascule vers un autre outil QGIS)."""
+        self._btn_reverse.blockSignals(True)
+        self._btn_reverse.setChecked(active)
+        self._btn_reverse.blockSignals(False)
+
+    def show_reverse_address(self, label):
+        """Affiche l'adresse trouvee par l'outil "?" dans le champ de recherche,
+        sans declencher une nouvelle recherche (textChanged bloque)."""
+        self._clear_list()
+        self._set_input_style(muted=False)
+        self._input.blockSignals(True)
+        self._input.setText(label)
+        self._input.blockSignals(False)
+        self._btn_clear.setVisible(bool(label))
+
+    def show_reverse_not_found(self, message):
+        """Affiche le message "aucune adresse trouvee" (style attenue) dans le
+        champ de recherche, sans declencher une nouvelle recherche."""
+        self._clear_list()
+        self._set_input_style(muted=True)
+        self._input.blockSignals(True)
+        self._input.setText(message)
+        self._input.blockSignals(False)
+        self._btn_clear.setVisible(True)
+
     def set_opacity(self, opacity):
         self._opacity = opacity
         self._update_styles()
@@ -325,7 +366,20 @@ class MagicSearchDockWidget(QDockWidget):
         if text and len(text) >= 2:
             self._layer_provider.search(text)
 
+    def _set_input_style(self, muted):
+        color = '#94a3b8' if muted else '#334155'
+        style = 'italic' if muted else 'normal'
+        self._input.setStyleSheet(f"""
+            QLineEdit {{
+                background: white; border: 1px solid #cbd5e1;
+                border-radius: 6px; padding: 8px 12px;
+                font-size: 12px; font-style: {style}; color: {color};
+            }}
+            QLineEdit:focus {{ border: 1px solid #00a096; }}
+        """)
+
     def _on_text_changed(self, text):
+        self._set_input_style(muted=False)
         self._btn_clear.setVisible(bool(text))
         if not text or len(text) < 2:
             self._layer_search_debounce.stop()
@@ -570,6 +624,7 @@ class MagicSearchDockWidget(QDockWidget):
         """Rafraichit les libelles deja construits apres un changement de langue."""
         self._input.setPlaceholderText(tr('placeholder'))
         self._btn_clear.setToolTip(tr('tip_clear'))
+        self._btn_reverse.setToolTip(tr('tip_reverse_geocode'))
         self._btn_config.setToolTip(tr('tip_config'))
         self._update_sync_style(self._sync_state)
         # Les resultats sont reconstruits a chaque frappe : rien a retraduire ici.

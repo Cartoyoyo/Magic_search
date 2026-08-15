@@ -7,6 +7,7 @@ Barre de recherche universelle pour QGIS : recherchez simultanement dans les adr
 - **Recherche BAN** : geocodage d'adresses francaises via l'API BAN (api-adresse.data.gouv.fr)
 - **Recherche OSM** : geocodage mondial via Nominatim (OpenStreetMap)
 - **Recherche couches** : recherche instantanee dans tous les champs de toutes les couches vectorielles du projet
+- **Geocodage inverse** : bouton "?" dans la barre de recherche - cliquez sur la carte pour afficher l'adresse BAN la plus proche (rayon 25 m) directement dans le champ de recherche
 - **Indexation incrementale** : cache compresse (gzip + msgpack) stocke a cote du projet
 - **2 styles d'interface** : barre flottante style Maps ou panneau ancrable Qt5
 - **Apercu geometrie** : surbrillance au survol, zoom au clic
@@ -28,6 +29,7 @@ Barre de recherche universelle pour QGIS : recherchez simultanement dans les adr
 - Taper au moins 2 caracteres pour lancer la recherche
 - Les resultats sont groupes par source (BAN/OSM/couches)
 - Cliquer sur un resultat pour zoomer, survoler pour previsualiser la geometrie
+- Cliquer sur le bouton **"?"** puis sur un point de la carte pour afficher l'adresse BAN la plus proche (rayon 25 m) dans le champ de recherche
 - Acceder a la configuration via le bouton engrenage
 
 ## Configuration

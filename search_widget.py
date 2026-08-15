@@ -437,6 +437,7 @@ class MagicSearchWidget(QDialog):
 
     config_requested = pyqtSignal()
     sync_requested = pyqtSignal()
+    reverse_toggled = pyqtSignal(bool)
 
     def __init__(self, iface, index_manager, ban_provider, osm_provider, layer_provider, parent=None, opacity=100):
         main_win = iface.mainWindow()
@@ -509,12 +510,7 @@ class MagicSearchWidget(QDialog):
         self._input = QLineEdit()
         self._input.setPlaceholderText(tr('placeholder'))
         self._input.setFrame(False)
-        self._input.setStyleSheet(f"""
-            QLineEdit {{
-                border: none; background: transparent;
-                font-size: 12px; color: {COLOR_TEXT}; padding: 8px 0;
-            }}
-        """)
+        self._set_input_style(muted=False)
         self._input.textChanged.connect(self._on_text_changed)
         bar_layout.addWidget(self._input)
 
@@ -535,6 +531,15 @@ class MagicSearchWidget(QDialog):
 
         self._icon_search = SearchIconWidget()
         bar_layout.addWidget(self._icon_search)
+
+        self._btn_reverse = QPushButton('?')
+        self._btn_reverse.setFixedSize(26, 26)
+        self._btn_reverse.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_reverse.setCheckable(True)
+        self._btn_reverse.setToolTip(tr('tip_reverse_geocode'))
+        self._update_reverse_style()
+        self._btn_reverse.toggled.connect(self.reverse_toggled.emit)
+        bar_layout.addWidget(self._btn_reverse)
 
         self._btn_config = QPushButton('\u2699')
         self._btn_config.setFixedSize(26, 26)
@@ -634,6 +639,47 @@ class MagicSearchWidget(QDialog):
         self._dropdown.set_opacity(opacity)
         self._collapsed_btn.set_opacity(opacity)
 
+    def _update_reverse_style(self):
+        self._btn_reverse.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none;
+                font-size: 14px; font-weight: bold; color: {COLOR_MUTED}; border-radius: 13px;
+            }}
+            QPushButton:hover {{ background: #f1f5f9; color: {VC_NAVY}; }}
+            QPushButton:checked {{ background: {VC_TURQUOISE}; color: white; }}
+        """)
+
+    def set_reverse_active(self, active):
+        """Synchronise le bouton "?" avec l'etat reel de l'outil de carte
+        (ex: decoche si l'utilisateur bascule vers un autre outil QGIS)."""
+        self._btn_reverse.blockSignals(True)
+        self._btn_reverse.setChecked(active)
+        self._btn_reverse.blockSignals(False)
+
+    def show_reverse_address(self, label):
+        """Affiche l'adresse trouvee par l'outil "?" dans le champ de recherche,
+        sans declencher une nouvelle recherche (textChanged bloque)."""
+        if self._collapsed:
+            self._expand()
+        self._hide_dropdown()
+        self._set_input_style(muted=False)
+        self._input.blockSignals(True)
+        self._input.setText(label)
+        self._input.blockSignals(False)
+        self._btn_clear.setVisible(bool(label))
+
+    def show_reverse_not_found(self, message):
+        """Affiche le message "aucune adresse trouvee" (style attenue) dans le
+        champ de recherche, sans declencher une nouvelle recherche."""
+        if self._collapsed:
+            self._expand()
+        self._hide_dropdown()
+        self._set_input_style(muted=True)
+        self._input.blockSignals(True)
+        self._input.setText(message)
+        self._input.blockSignals(False)
+        self._btn_clear.setVisible(True)
+
     def _update_bar_style(self):
         alpha = int(255 * (self._opacity / 100.0))
         self._bar.setStyleSheet(f"""
@@ -673,6 +719,7 @@ class MagicSearchWidget(QDialog):
         """Rafraichit les libelles deja construits apres un changement de langue."""
         self._input.setPlaceholderText(tr('placeholder'))
         self._btn_clear.setToolTip(tr('tip_clear'))
+        self._btn_reverse.setToolTip(tr('tip_reverse_geocode'))
         self._btn_config.setToolTip(tr('tip_config'))
         self._btn_collapse.setToolTip(tr('tip_collapse'))
         self._update_sync_style(self._sync_state)
@@ -885,7 +932,18 @@ class MagicSearchWidget(QDialog):
         if text and len(text) >= 2:
             self._layer_provider.search(text)
 
+    def _set_input_style(self, muted):
+        color = COLOR_MUTED if muted else COLOR_TEXT
+        style = 'italic' if muted else 'normal'
+        self._input.setStyleSheet(f"""
+            QLineEdit {{
+                border: none; background: transparent;
+                font-size: 12px; font-style: {style}; color: {color}; padding: 8px 0;
+            }}
+        """)
+
     def _on_text_changed(self, text):
+        self._set_input_style(muted=False)
         self._btn_clear.setVisible(bool(text))
         if not text or len(text) < 2:
             self._layer_search_debounce.stop()

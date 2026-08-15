@@ -107,6 +107,20 @@ TR = {
         'es': "Magic Search - Configuracion",
         'pt': "Magic Search - Configuracao",
         'de': "Magic Search - Einstellungen"},
+    'tip_reverse_geocode': {
+        'fr': "Adresse BAN la plus proche (cliquer sur la carte)",
+        'en': "Nearest BAN address (click on the map)",
+        'es': "Direccion BAN mas cercana (clic en el mapa)",
+        'pt': "Endereco BAN mais proximo (clique no mapa)",
+        'de': "Nachste BAN-Adresse (auf die Karte klicken)"},
+
+    # ---- Geocodage inverse ----
+    'msg_reverse_none': {
+        'fr': "Aucune adresse BAN a moins de {max} m",
+        'en': "No BAN address within {max} m",
+        'es': "Ninguna direccion BAN a menos de {max} m",
+        'pt': "Nenhum endereco BAN a menos de {max} m",
+        'de': "Keine BAN-Adresse innerhalb von {max} m"},
 
     # ---- Etat du cache (dialogue de configuration) ----
     'cache_not_created': {

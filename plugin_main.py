@@ -29,6 +29,8 @@ class MagicSearch:
         self.ban_provider = None
         self.osm_provider = None
         self.layer_provider = None
+        self.ban_reverse_provider = None
+        self.reverse_tool = None
         self._config = {}
         self._visible = False
         self.plugin_dir = os.path.dirname(__file__)
@@ -37,7 +39,8 @@ class MagicSearch:
         self._load_config()
 
         from .core.index_manager import IndexManager
-        from .providers.ban_provider import BanProvider
+        from .core.reverse_geocode_tool import ReverseGeocodeTool
+        from .providers.ban_provider import BanProvider, BanReverseProvider
         from .providers.osm_provider import OsmProvider
         from .providers.layer_provider import LayerProvider
 
@@ -45,8 +48,13 @@ class MagicSearch:
         self.ban_provider = BanProvider()
         self.osm_provider = OsmProvider()
         self.layer_provider = LayerProvider(self.index_manager)
+        self.ban_reverse_provider = BanReverseProvider()
+        self.reverse_tool = ReverseGeocodeTool(self.iface, self.ban_reverse_provider)
+        self.reverse_tool.address_found.connect(self._on_reverse_address_found)
+        self.reverse_tool.address_not_found.connect(self._on_reverse_address_not_found)
 
         self._apply_config()
+        self.index_manager.start_indexing()
 
         icon_path = os.path.join(self.plugin_dir, 'icon.png')
         icon = QIcon(icon_path) if os.path.exists(icon_path) else QIcon()
@@ -62,6 +70,8 @@ class MagicSearch:
         self.action_config = QAction(tr('menu_config'), self.iface.mainWindow())
         self.action_config.triggered.connect(self._open_config)
         self.iface.addPluginToMenu('&Magic Search', self.action_config)
+
+        self.iface.mapCanvas().mapToolSet.connect(self._on_map_tool_set)
 
         self.shortcut = QShortcut(
             QKeySequence('Ctrl+Shift+F'),
@@ -79,8 +89,44 @@ class MagicSearch:
         # lors des reconstructions declenchees par l'ouverture/creation d'un projet.
         self._build_ui()
 
+    def _toggle_reverse_tool(self, checked):
+        canvas = self.iface.mapCanvas()
+        if checked:
+            canvas.setMapTool(self.reverse_tool)
+        else:
+            canvas.unsetMapTool(self.reverse_tool)
+
+    def _on_map_tool_set(self, new_tool, old_tool):
+        """Garde le bouton "?" des widgets synchronise avec l'outil de carte actif
+        (ex: decocher si l'utilisateur bascule vers un autre outil QGIS)."""
+        active = new_tool is self.reverse_tool
+        if self.search_widget:
+            self.search_widget.set_reverse_active(active)
+        if self.dock_widget:
+            self.dock_widget.set_reverse_active(active)
+
+    def _on_reverse_address_found(self, label):
+        """Affiche l'adresse trouvee par l'outil "?" directement dans la barre
+        de recherche du style d'UI actif."""
+        if self.search_widget:
+            self.search_widget.show_reverse_address(label)
+        if self.dock_widget:
+            self.dock_widget.show_reverse_address(label)
+
+    def _on_reverse_address_not_found(self, message):
+        """Affiche le message "aucune adresse trouvee" directement dans la
+        barre de recherche du style d'UI actif."""
+        if self.search_widget:
+            self.search_widget.show_reverse_not_found(message)
+        if self.dock_widget:
+            self.dock_widget.show_reverse_not_found(message)
+
     def _build_ui(self):
         ui_style = self._config.get('ui_style', 'maps')
+
+        canvas = self.iface.mapCanvas()
+        if self.reverse_tool and canvas.mapTool() is self.reverse_tool:
+            canvas.unsetMapTool(self.reverse_tool)
 
         if ui_style != 'maps' and self.search_widget:
             self.search_widget.cleanup()
@@ -105,6 +151,7 @@ class MagicSearch:
                 )
                 self.search_widget.config_requested.connect(self._open_config)
                 self.search_widget.sync_requested.connect(self._force_reindex)
+                self.search_widget.reverse_toggled.connect(self._toggle_reverse_tool)
             self.search_widget.setVisible(self._visible)
 
         else:  # qt5
@@ -121,6 +168,7 @@ class MagicSearch:
                 )
                 self.dock_widget.config_requested.connect(self._open_config)
                 self.dock_widget.sync_requested.connect(self._force_reindex)
+                self.dock_widget.reverse_toggled.connect(self._toggle_reverse_tool)
 
             self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
             self.dock_widget.set_opacity(self._config.get('opacity', 100))
@@ -145,8 +193,15 @@ class MagicSearch:
             QgsProject.instance().readProject.disconnect(self._on_project_loaded)
             QgsProject.instance().cleared.disconnect(self._on_project_closed)
             self.iface.newProjectCreated.disconnect(self._on_project_loaded)
+            self.iface.mapCanvas().mapToolSet.disconnect(self._on_map_tool_set)
         except Exception:
             pass
+
+        if self.reverse_tool:
+            canvas = self.iface.mapCanvas()
+            if canvas.mapTool() is self.reverse_tool:
+                canvas.unsetMapTool(self.reverse_tool)
+            self.reverse_tool = None
 
         if self.action_toggle:
             self.iface.removeToolBarIcon(self.action_toggle)
@@ -265,6 +320,8 @@ class MagicSearch:
             self.index_manager.stop()
         self._load_config()
         self._apply_config()
+        if self.index_manager:
+            self.index_manager.start_indexing()
         self._build_ui()
         if self.action_toggle:
             self.action_toggle.setChecked(self._visible)

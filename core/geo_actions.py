@@ -53,7 +53,7 @@ def transform_point(iface, lon, lat):
     return transform.transform(QgsPointXY(lon, lat))
 
 
-def zoom_to_point(iface, lon, lat, scale=2000):
+def zoom_to_point(iface, lon, lat, scale=1000):
     """Centre/zoome le canevas sur un point WGS84 (lon, lat). Retourne le point transforme."""
     canvas = iface.mapCanvas()
     point = transform_point(iface, lon, lat)
@@ -95,13 +95,14 @@ def zoom_to_features(iface, layer_id, fids):
         if crs_src != crs_dst:
             transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance())
             combined.transform(transform)
-        canvas.setExtent(combined.boundingBox())
-        if canvas.scale() < 2000:
+        # Agrandir l'emprise x2 autour du centre : l'objet occupe ~50% de l'ecran
+        # au lieu de le remplir entierement.
+        bbox = combined.boundingBox()
+        bbox.scale(2.0)
+        canvas.setExtent(bbox)
+        if canvas.scale() < 1000:
             canvas.setCenter(combined.centroid().asPoint())
-            canvas.zoomScale(2000)
-        else:
-            # Ajouter 10% de marge pour ne pas que l'objet touche les bords
-            canvas.zoomScale(canvas.scale() * 1.1)
+            canvas.zoomScale(1000)
         canvas.refresh()
     layer.selectByIds(fids)
 
