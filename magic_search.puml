@@ -17,6 +17,7 @@ package "plugin_main" {
     - layer_provider : LayerProvider
     - ban_reverse_provider : BanReverseProvider
     - reverse_tool : ReverseGeocodeTool
+    - street_view_tool : StreetViewTool
     - _config : dict
     - _visible : bool
     __
@@ -25,6 +26,7 @@ package "plugin_main" {
     - _build_ui()
     - _toggle_visibility(checked)
     - _toggle_reverse_tool(checked)
+    - _activate_street_view(service)
     - _on_map_tool_set(new_tool, old_tool)
     - _on_reverse_address_found(label)
     - _on_reverse_address_not_found(message)
@@ -93,6 +95,18 @@ package "core" {
     __ signals __
     address_found(str)
     address_not_found(str)
+  }
+
+  class StreetViewTool {
+    + SERVICE_LABELS : dict
+    + SERVICE_URLS : dict
+    - _iface
+    - _service : str
+    __
+    + set_service(service)
+    + canvasReleaseEvent(event)
+    __
+    (usage unique : ouvre l'URL du service\ndans le navigateur puis se desactive)
   }
 }
 
@@ -174,6 +188,7 @@ package "search_widget (UI style 'maps')" {
     - _dropdown : DropdownWidget
     - _collapsed_btn : CollapsedButton
     - _btn_reverse : QPushButton
+    - _btn_street : QToolButton
     - event_filter : StayOnTopEventFilter
     __
     + set_focus()
@@ -193,6 +208,7 @@ package "search_widget (UI style 'maps')" {
     config_requested()
     sync_requested()
     reverse_toggled(bool)
+    street_view_requested(str)
   }
 
   class DropdownWidget {
@@ -241,6 +257,7 @@ package "dock_widget (UI style 'qt5')" {
     - event_filter : StayOnTopEventFilter
     - _widgets : list
     - _btn_reverse : QPushButton
+    - _btn_street : QToolButton
     __
     + set_focus()
     + set_opacity(opacity)
@@ -258,6 +275,7 @@ package "dock_widget (UI style 'qt5')" {
     config_requested()
     sync_requested()
     reverse_toggled(bool)
+    street_view_requested(str)
   }
 
   class ResultItemDock {
@@ -308,6 +326,7 @@ MagicSearch *-- OsmProvider
 MagicSearch *-- LayerProvider
 MagicSearch *-- BanReverseProvider
 MagicSearch *-- ReverseGeocodeTool
+MagicSearch *-- StreetViewTool
 MagicSearch *-- "0..1" MagicSearchWidget : ui_style = maps
 MagicSearch *-- "0..1" MagicSearchDockWidget : ui_style = qt5
 MagicSearch ..> ConfigDialog : ouvre
@@ -318,6 +337,8 @@ ReverseGeocodeTool ..> geo_actions : repere sur clic
 ReverseGeocodeTool ..> i18n_mod : tr() (message non trouve)
 MagicSearchWidget ..> ReverseGeocodeTool : reverse_toggled -> setMapTool
 MagicSearchDockWidget ..> ReverseGeocodeTool : reverse_toggled -> setMapTool
+MagicSearchWidget ..> StreetViewTool : street_view_requested -> setMapTool
+MagicSearchDockWidget ..> StreetViewTool : street_view_requested -> setMapTool
 
 MagicSearchWidget --> IndexManager
 MagicSearchWidget --> BanProvider

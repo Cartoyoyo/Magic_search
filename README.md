@@ -8,6 +8,7 @@ Barre de recherche universelle pour QGIS : recherchez simultanement dans les adr
 - **Recherche OSM** : geocodage mondial via Nominatim (OpenStreetMap)
 - **Recherche couches** : recherche instantanee dans tous les champs de toutes les couches vectorielles du projet
 - **Geocodage inverse** : bouton "?" dans la barre de recherche - cliquez sur la carte pour afficher l'adresse BAN la plus proche (rayon 25 m) directement dans le champ de recherche
+- **Vue de rue** : menu deroulant (Google Street View, Mapillary, Panoramax, Bing Streetside) - choisissez un service puis cliquez sur la carte pour ouvrir la vue du point dans le navigateur
 - **Indexation incrementale** : cache compresse (gzip + msgpack) stocke a cote du projet
 - **2 styles d'interface** : barre flottante style Maps ou panneau ancrable Qt5
 - **Apercu geometrie** : surbrillance au survol, zoom au clic
@@ -30,6 +31,7 @@ Barre de recherche universelle pour QGIS : recherchez simultanement dans les adr
 - Les resultats sont groupes par source (BAN/OSM/couches)
 - Cliquer sur un resultat pour zoomer, survoler pour previsualiser la geometrie
 - Cliquer sur le bouton **"?"** puis sur un point de la carte pour afficher l'adresse BAN la plus proche (rayon 25 m) dans le champ de recherche
+- Cliquer sur le bouton **"◎"**, choisir un service (Google/Mapillary/Panoramax/Bing) puis cliquer sur la carte pour ouvrir la vue de rue du point dans le navigateur
 - Acceder a la configuration via le bouton engrenage
 
 ## Configuration

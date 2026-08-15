@@ -8,7 +8,7 @@ import json
 from qgis.PyQt.QtWidgets import QAction, QShortcut
 from qgis.PyQt.QtGui import QIcon, QKeySequence
 from qgis.PyQt.QtCore import Qt
-from qgis.core import QgsProject, QgsVectorLayer, QgsApplication
+from qgis.core import QgsProject, QgsVectorLayer, QgsApplication, Qgis
 
 from . import i18n
 from .i18n import tr
@@ -31,6 +31,7 @@ class MagicSearch:
         self.layer_provider = None
         self.ban_reverse_provider = None
         self.reverse_tool = None
+        self.street_view_tool = None
         self._config = {}
         self._visible = False
         self.plugin_dir = os.path.dirname(__file__)
@@ -40,6 +41,7 @@ class MagicSearch:
 
         from .core.index_manager import IndexManager
         from .core.reverse_geocode_tool import ReverseGeocodeTool
+        from .core.street_view_tool import StreetViewTool
         from .providers.ban_provider import BanProvider, BanReverseProvider
         from .providers.osm_provider import OsmProvider
         from .providers.layer_provider import LayerProvider
@@ -52,6 +54,7 @@ class MagicSearch:
         self.reverse_tool = ReverseGeocodeTool(self.iface, self.ban_reverse_provider)
         self.reverse_tool.address_found.connect(self._on_reverse_address_found)
         self.reverse_tool.address_not_found.connect(self._on_reverse_address_not_found)
+        self.street_view_tool = StreetViewTool(self.iface)
 
         self._apply_config()
         self.index_manager.start_indexing()
@@ -105,6 +108,18 @@ class MagicSearch:
         if self.dock_widget:
             self.dock_widget.set_reverse_active(active)
 
+    def _activate_street_view(self, service):
+        """Active l'outil de vue de rue pour le service choisi dans le menu
+        deroulant. Usage unique : l'outil se desactive apres le clic."""
+        from .core.street_view_tool import SERVICE_LABELS
+        self.street_view_tool.set_service(service)
+        self.iface.mapCanvas().setMapTool(self.street_view_tool)
+        self.iface.messageBar().pushMessage(
+            'Magic Search',
+            tr('msg_street_view_prompt', service=SERVICE_LABELS.get(service, service)),
+            level=Qgis.Info, duration=4
+        )
+
     def _on_reverse_address_found(self, label):
         """Affiche l'adresse trouvee par l'outil "?" directement dans la barre
         de recherche du style d'UI actif."""
@@ -127,6 +142,8 @@ class MagicSearch:
         canvas = self.iface.mapCanvas()
         if self.reverse_tool and canvas.mapTool() is self.reverse_tool:
             canvas.unsetMapTool(self.reverse_tool)
+        if self.street_view_tool and canvas.mapTool() is self.street_view_tool:
+            canvas.unsetMapTool(self.street_view_tool)
 
         if ui_style != 'maps' and self.search_widget:
             self.search_widget.cleanup()
@@ -152,6 +169,7 @@ class MagicSearch:
                 self.search_widget.config_requested.connect(self._open_config)
                 self.search_widget.sync_requested.connect(self._force_reindex)
                 self.search_widget.reverse_toggled.connect(self._toggle_reverse_tool)
+                self.search_widget.street_view_requested.connect(self._activate_street_view)
             self.search_widget.setVisible(self._visible)
 
         else:  # qt5
@@ -169,6 +187,7 @@ class MagicSearch:
                 self.dock_widget.config_requested.connect(self._open_config)
                 self.dock_widget.sync_requested.connect(self._force_reindex)
                 self.dock_widget.reverse_toggled.connect(self._toggle_reverse_tool)
+                self.dock_widget.street_view_requested.connect(self._activate_street_view)
 
             self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
             self.dock_widget.set_opacity(self._config.get('opacity', 100))
@@ -202,6 +221,11 @@ class MagicSearch:
             if canvas.mapTool() is self.reverse_tool:
                 canvas.unsetMapTool(self.reverse_tool)
             self.reverse_tool = None
+        if self.street_view_tool:
+            canvas = self.iface.mapCanvas()
+            if canvas.mapTool() is self.street_view_tool:
+                canvas.unsetMapTool(self.street_view_tool)
+            self.street_view_tool = None
 
         if self.action_toggle:
             self.iface.removeToolBarIcon(self.action_toggle)

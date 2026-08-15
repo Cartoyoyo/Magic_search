@@ -122,6 +122,20 @@ TR = {
         'pt': "Nenhum endereco BAN a menos de {max} m",
         'de': "Keine BAN-Adresse innerhalb von {max} m"},
 
+    # ---- Vue de rue ----
+    'tip_street_view': {
+        'fr': "Vue de rue (choisir un service puis cliquer sur la carte)",
+        'en': "Street view (pick a service then click on the map)",
+        'es': "Vista de calle (elija un servicio y haga clic en el mapa)",
+        'pt': "Vista de rua (escolha um servico e clique no mapa)",
+        'de': "Strassenansicht (Dienst waehlen, dann auf die Karte klicken)"},
+    'msg_street_view_prompt': {
+        'fr': "Cliquez sur la carte pour ouvrir {service}",
+        'en': "Click on the map to open {service}",
+        'es': "Haga clic en el mapa para abrir {service}",
+        'pt': "Clique no mapa para abrir {service}",
+        'de': "Klicken Sie auf die Karte, um {service} zu oeffnen"},
+
     # ---- Etat du cache (dialogue de configuration) ----
     'cache_not_created': {
         'fr': "(pas encore cree)",

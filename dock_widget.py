@@ -3,7 +3,8 @@ Dock Widget - Panneau ancrable Qt5 natif pour Magic Search.
 Comportement dynamique : compact au repos, s'etend avec les resultats.
 """
 from qgis.PyQt.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QFrame
+    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QFrame,
+    QToolButton, QMenu
 )
 from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QCursor, QPixmap
@@ -11,6 +12,7 @@ import os
 
 from .ui_common import StayOnTopEventFilter
 from .core import geo_actions
+from .core.street_view_tool import SERVICE_LABELS
 from .i18n import tr
 
 TAG = 'Magic Search'
@@ -169,6 +171,7 @@ class MagicSearchDockWidget(QDockWidget):
     config_requested = pyqtSignal()
     sync_requested = pyqtSignal()
     reverse_toggled = pyqtSignal(bool)
+    street_view_requested = pyqtSignal(str)
 
     def __init__(self, iface, index_manager, ban_provider, osm_provider, layer_provider, parent=None):
         super().__init__("Magic Search", parent)
@@ -248,6 +251,23 @@ class MagicSearchDockWidget(QDockWidget):
         self._btn_reverse.toggled.connect(self.reverse_toggled.emit)
         input_layout.addWidget(self._btn_reverse)
 
+        # Bouton vue de rue (menu deroulant : Google / Mapillary / Panoramax / Bing)
+        self._btn_street = QToolButton()
+        self._btn_street.setText('◎')
+        self._btn_street.setPopupMode(QToolButton.InstantPopup)
+        self._btn_street.setFixedSize(24, 24)
+        self._btn_street.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_street.setToolTip(tr('tip_street_view'))
+        self._update_street_style()
+        street_menu = QMenu(self._btn_street)
+        for service_key in ('google', 'mapillary', 'panoramax', 'bing'):
+            act = street_menu.addAction(SERVICE_LABELS[service_key])
+            act.triggered.connect(
+                lambda checked=False, s=service_key: self.street_view_requested.emit(s)
+            )
+        self._btn_street.setMenu(street_menu)
+        input_layout.addWidget(self._btn_street)
+
         # Bouton synchronisation
         self._btn_sync = QPushButton('\u27F3')
         self._btn_sync.setFixedSize(24, 24)
@@ -303,6 +323,16 @@ class MagicSearchDockWidget(QDockWidget):
         self._layer_search_debounce.setSingleShot(True)
         self._layer_search_debounce.setInterval(LAYER_SEARCH_DEBOUNCE_MS)
         self._layer_search_debounce.timeout.connect(self._do_layer_search)
+
+    def _update_street_style(self):
+        self._btn_street.setStyleSheet(f"""
+            QToolButton {{
+                background: transparent; border: none;
+                font-size: 13px; color: #64748b; border-radius: 12px;
+            }}
+            QToolButton::menu-indicator {{ image: none; width: 0; }}
+            QToolButton:hover {{ background: #f1f5f9; color: {VC_NAVY}; }}
+        """)
 
     def _update_reverse_style(self):
         self._btn_reverse.setStyleSheet(f"""
@@ -625,6 +655,7 @@ class MagicSearchDockWidget(QDockWidget):
         self._input.setPlaceholderText(tr('placeholder'))
         self._btn_clear.setToolTip(tr('tip_clear'))
         self._btn_reverse.setToolTip(tr('tip_reverse_geocode'))
+        self._btn_street.setToolTip(tr('tip_street_view'))
         self._btn_config.setToolTip(tr('tip_config'))
         self._update_sync_style(self._sync_state)
         # Les resultats sont reconstruits a chaque frappe : rien a retraduire ici.
