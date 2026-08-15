@@ -8,9 +8,13 @@ import json
 from qgis.PyQt.QtWidgets import QAction, QShortcut
 from qgis.PyQt.QtGui import QIcon, QKeySequence
 from qgis.PyQt.QtCore import Qt
-from qgis.core import QgsProject, QgsVectorLayer
+from qgis.core import QgsProject, QgsVectorLayer, QgsApplication
+
+from . import i18n
+from .i18n import tr
 
 CONFIG_KEY = 'MagicSearch'
+SUPPORTED_LANGS = i18n.LANGS
 
 
 class MagicSearch:
@@ -26,6 +30,7 @@ class MagicSearch:
         self.osm_provider = None
         self.layer_provider = None
         self._config = {}
+        self._visible = False
         self.plugin_dir = os.path.dirname(__file__)
 
     def initGui(self):
@@ -49,12 +54,12 @@ class MagicSearch:
         self.action_toggle = QAction(icon, 'Magic Search', self.iface.mainWindow())
         self.action_toggle.setCheckable(True)
         self.action_toggle.setChecked(False)
-        self.action_toggle.setToolTip('Afficher / Masquer Magic Search')
+        self.action_toggle.setToolTip(tr('tip_toggle'))
         self.action_toggle.triggered.connect(self._toggle_visibility)
         self.iface.addToolBarIcon(self.action_toggle)
         self.iface.addPluginToMenu('&Magic Search', self.action_toggle)
 
-        self.action_config = QAction('Magic Search - Config', self.iface.mainWindow())
+        self.action_config = QAction(tr('menu_config'), self.iface.mainWindow())
         self.action_config.triggered.connect(self._open_config)
         self.iface.addPluginToMenu('&Magic Search', self.action_config)
 
@@ -67,12 +72,12 @@ class MagicSearch:
         QgsProject.instance().layersRemoved.connect(self._on_layers_removed)
         QgsProject.instance().readProject.connect(self._on_project_loaded)
         QgsProject.instance().cleared.connect(self._on_project_closed)
+        self.iface.newProjectCreated.connect(self._on_project_loaded)
 
-        # Affichage uniquement si un projet est déjà ouvert
-        if QgsProject.instance().fileName():
-            self._build_ui()
-            if self.action_toggle:
-                self.action_toggle.setChecked(True)
+        # Toujours construire l'UI au demarrage (meme pour un projet sans titre),
+        # mais sans l'afficher : self._visible pilote seul la visibilite, y compris
+        # lors des reconstructions declenchees par l'ouverture/creation d'un projet.
+        self._build_ui()
 
     def _build_ui(self):
         ui_style = self._config.get('ui_style', 'maps')
@@ -100,7 +105,7 @@ class MagicSearch:
                 )
                 self.search_widget.config_requested.connect(self._open_config)
                 self.search_widget.sync_requested.connect(self._force_reindex)
-            self.search_widget.show()
+            self.search_widget.setVisible(self._visible)
 
         else:  # qt5
             from .dock_widget import MagicSearchDockWidget
@@ -129,7 +134,7 @@ class MagicSearch:
                 self.dock_widget.move(cx, cy)
                 self.dock_widget.resize(400, 70)
 
-            self.dock_widget.show()
+            self.dock_widget.setVisible(self._visible)
 
     def unload(self):
         if self.index_manager:
@@ -139,6 +144,7 @@ class MagicSearch:
             QgsProject.instance().layersRemoved.disconnect(self._on_layers_removed)
             QgsProject.instance().readProject.disconnect(self._on_project_loaded)
             QgsProject.instance().cleared.disconnect(self._on_project_closed)
+            self.iface.newProjectCreated.disconnect(self._on_project_loaded)
         except Exception:
             pass
 
@@ -161,6 +167,7 @@ class MagicSearch:
             self.dock_widget = None
 
     def _toggle_visibility(self, checked):
+        self._visible = checked
         if self.search_widget:
             self.search_widget.setVisible(checked)
             if checked:
@@ -169,6 +176,7 @@ class MagicSearch:
             self.dock_widget.setVisible(checked)
 
     def _focus_search(self):
+        self._visible = True
         if self.search_widget:
             self.search_widget.setVisible(True)
             self.search_widget.set_focus()
@@ -182,10 +190,20 @@ class MagicSearch:
 
     def _open_config(self):
         from .config_dialog import ConfigDialog
-        dlg = ConfigDialog(self._config, parent=self.iface.mainWindow())
+        dlg = ConfigDialog(self._config, lang=i18n.current_lang(),
+                           parent=self.iface.mainWindow())
         dlg.config_changed.connect(self._on_config_changed)
         dlg.reindex_requested.connect(self._force_reindex)
         dlg.exec_()
+
+    def _detect_qgis_lang(self):
+        """Deduit une langue supportee a partir de la locale QGIS (sinon 'en')."""
+        try:
+            locale = QgsApplication.instance().locale()
+        except Exception:
+            locale = ''
+        code = (locale or '')[:2].lower()
+        return code if code in SUPPORTED_LANGS else 'en'
 
     def _on_config_changed(self, config):
         old_ui = self._config.get('ui_style', 'maps')
@@ -196,6 +214,11 @@ class MagicSearch:
             self._build_ui()
 
     def _apply_config(self):
+        # La langue est appliquee en premier : les libelles construits juste
+        # apres (actions, widgets) doivent deja etre dans la bonne langue.
+        i18n.set_lang(self._config.get('lang') or self._detect_qgis_lang())
+        self._retranslate()
+
         geocoder = self._config.get('geocoder', 'ban')
         if self.ban_provider:
             self.ban_provider.set_enabled(geocoder == 'ban')
@@ -214,6 +237,17 @@ class MagicSearch:
         if self.dock_widget:
             self.dock_widget.set_opacity(opacity)
 
+    def _retranslate(self):
+        """Applique la langue courante aux actions QGIS et aux widgets existants."""
+        if self.action_toggle:
+            self.action_toggle.setToolTip(tr('tip_toggle'))
+        if self.action_config:
+            self.action_config.setText(tr('menu_config'))
+        if self.search_widget:
+            self.search_widget.retranslate()
+        if self.dock_widget:
+            self.dock_widget.retranslate()
+
     def _force_reindex(self):
         if self.index_manager:
             self.index_manager.stop()
@@ -224,20 +258,22 @@ class MagicSearch:
             for lid in layer_ids:
                 self.index_manager.remove_layer(lid)
 
-    def _on_project_loaded(self, doc):
-        """Nouveau projet ouvert : recharger la config et reconstruire l'UI."""
+    def _on_project_loaded(self, doc=None):
+        """Nouveau projet ouvert : recharger la config et reconstruire l'UI.
+        La visibilite courante (self._visible) est preservee, jamais forcee."""
         if self.index_manager:
             self.index_manager.stop()
         self._load_config()
         self._apply_config()
         self._build_ui()
         if self.action_toggle:
-            self.action_toggle.setChecked(True)
+            self.action_toggle.setChecked(self._visible)
 
     def _on_project_closed(self):
         """Projet fermé : masquer l'UI et vider l'index."""
         if self.index_manager:
             self.index_manager.stop()
+        self._visible = False
         if self.search_widget:
             self.search_widget.hide()
         if self.dock_widget:

@@ -1,0 +1,307 @@
+@startuml magic_search
+
+title Magic Search - Diagramme de classes (plugin QGIS)
+
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+hide empty members
+
+package "plugin_main" {
+  class MagicSearch {
+    - iface
+    - search_widget : MagicSearchWidget
+    - dock_widget : MagicSearchDockWidget
+    - index_manager : IndexManager
+    - ban_provider : BanProvider
+    - osm_provider : OsmProvider
+    - layer_provider : LayerProvider
+    - _config : dict
+    - _visible : bool
+    __
+    + initGui()
+    + unload()
+    - _build_ui()
+    - _toggle_visibility(checked)
+    - _focus_search()
+    - _open_config()
+    - _apply_config()
+    - _retranslate()
+    - _force_reindex()
+    - _on_layers_removed(layer_ids)
+    - _on_project_loaded(doc)
+    - _on_project_closed()
+    - _save_config()
+    - _load_config()
+  }
+}
+
+package "__init__" {
+  class classFactory << (F,orchid) function >>
+}
+
+package "core" {
+  class IndexManager {
+    + SYNC_NEVER, SYNC_SYNCING, SYNC_COMPLETE
+    - _index : dict
+    - _layers_config : dict
+    - _queue : list
+    - _timer : QTimer
+    __
+    + start_indexing()
+    + stop()
+    + search(query, max_per_field) : list
+    + reindex_layer(layer_id)
+    + remove_layer(layer_id)
+    + set_config(layers_config, max_cache_mb)
+    - _process_next()
+    - _finalize()
+    - _save_cache()
+    - _load_cache(cache_path)
+    __ signals __
+    indexing_started()
+    indexing_progress(str)
+    indexing_finished()
+    layer_ready(str)
+    sync_state_changed(str)
+  }
+
+  class "geo_actions" as geo_actions << (M,lightblue) module >> {
+    + color_for_layer(layer_id)
+    + transform_point(iface, lon, lat)
+    + zoom_to_point(iface, lon, lat, scale)
+    + make_point_rubber(canvas, point, color)
+    + zoom_to_features(iface, layer_id, fids)
+    + make_features_rubber(iface, layer_id, fids, color, max_features)
+    + clear_rubber(rubber_band)
+  }
+}
+
+package "providers" {
+  class BanProvider {
+    - _nam : QgsNetworkAccessManager
+    - _timer : QTimer
+    - _enabled : bool
+    __
+    + search(query)
+    + cancel()
+    + set_enabled(enabled)
+    - _do_request()
+    - _on_finished()
+    __ signals __
+    results_ready(list)
+  }
+
+  class OsmProvider {
+    - _nam : QgsNetworkAccessManager
+    - _timer : QTimer
+    - _enabled : bool
+    __
+    + search(query)
+    + cancel()
+    + set_enabled(enabled)
+    - _do_request()
+    - _on_finished()
+    __ signals __
+    results_ready(list)
+  }
+
+  class LayerProvider {
+    - _index_manager : IndexManager
+    __
+    + search(query, max_per_field)
+    __ signals __
+    results_ready(list)
+  }
+}
+
+package "ui_common" {
+  class StayOnTopEventFilter {
+    - dialog
+    - qgis_main_window
+    - _reposition_cb
+    __
+    + eventFilter(watched, event)
+    - _sync_visibility()
+    - _maybe_raise()
+  }
+}
+
+package "i18n" {
+  class "i18n" as i18n_mod << (M,lightblue) module >> {
+    + LANGS
+    + set_lang(code)
+    + current_lang()
+    + tr(key, lang, **kwargs)
+  }
+}
+
+package "search_widget (UI style 'maps')" {
+  class MagicSearchWidget {
+    - _iface
+    - _index_manager : IndexManager
+    - _ban_provider : BanProvider
+    - _osm_provider : OsmProvider
+    - _layer_provider : LayerProvider
+    - _dropdown : DropdownWidget
+    - _collapsed_btn : CollapsedButton
+    - event_filter : StayOnTopEventFilter
+    __
+    + set_focus()
+    + set_opacity(opacity)
+    + retranslate()
+    + reset_position()
+    + cleanup()
+    - _on_text_changed(text)
+    - _update_dropdown()
+    - _on_result_clicked(data)
+    - _collapse() / _expand()
+    __ signals __
+    config_requested()
+    sync_requested()
+  }
+
+  class DropdownWidget {
+    - _widgets : list
+    __
+    + show_results(ban, osm, layer)
+    + hide_results()
+    __ signals __
+    result_clicked(dict)
+    result_hovered(dict)
+    result_unhovered()
+  }
+
+  class CollapsedButton {
+    __ signals __
+    clicked()
+    drag_started(QPoint)
+    drag_moved(QPoint)
+    drag_finished()
+  }
+
+  class ResultItem {
+    - _data : dict
+    __ signals __
+    clicked(dict)
+    hovered(dict)
+    unhovered()
+  }
+
+  class ExpandItem {
+    - _data : dict
+    __ signals __
+    clicked(dict)
+  }
+
+  class SearchIconWidget
+}
+
+package "dock_widget (UI style 'qt5')" {
+  class MagicSearchDockWidget {
+    - _iface
+    - _index_manager : IndexManager
+    - _ban_provider : BanProvider
+    - _osm_provider : OsmProvider
+    - _layer_provider : LayerProvider
+    - event_filter : StayOnTopEventFilter
+    - _widgets : list
+    __
+    + set_focus()
+    + set_opacity(opacity)
+    + retranslate()
+    + cleanup()
+    - _on_text_changed(text)
+    - _update_list()
+    - _on_result_clicked(data)
+    - _update_sync_style(state)
+    __ signals __
+    config_requested()
+    sync_requested()
+  }
+
+  class ResultItemDock {
+    - _data : dict
+    __ signals __
+    clicked(dict)
+    hovered(dict)
+    unhovered()
+  }
+
+  class ExpandItemDock {
+    - _data : dict
+    __ signals __
+    clicked(dict)
+  }
+}
+
+package "config_dialog" {
+  class ConfigDialog {
+    - _config : dict
+    - _layer_items : dict
+    - _tree : QTreeWidget
+    __
+    + tr_(key)
+    - _populate_layers_tree()
+    - _build_config() : dict
+    - _on_accept()
+    - _on_reindex()
+    - _show_about()
+    __ signals __
+    config_changed(dict)
+    reindex_requested()
+  }
+
+  class AboutDialog {
+    __
+    (affiche version/auteur depuis metadata.txt,\nlien LinkedIn, licence GPLv3, GitHub)
+  }
+}
+
+' ===================== Relations =====================
+
+classFactory ..> MagicSearch : cree
+
+MagicSearch *-- IndexManager
+MagicSearch *-- BanProvider
+MagicSearch *-- OsmProvider
+MagicSearch *-- LayerProvider
+MagicSearch *-- "0..1" MagicSearchWidget : ui_style = maps
+MagicSearch *-- "0..1" MagicSearchDockWidget : ui_style = qt5
+MagicSearch ..> ConfigDialog : ouvre
+
+LayerProvider --> IndexManager : delegue recherche
+
+MagicSearchWidget --> IndexManager
+MagicSearchWidget --> BanProvider
+MagicSearchWidget --> OsmProvider
+MagicSearchWidget --> LayerProvider
+MagicSearchWidget *-- DropdownWidget
+MagicSearchWidget *-- CollapsedButton
+MagicSearchWidget *-- SearchIconWidget
+MagicSearchWidget *-- StayOnTopEventFilter
+MagicSearchWidget ..> geo_actions : zoom / surbrillance
+DropdownWidget *-- "0..*" ResultItem
+DropdownWidget *-- "0..*" ExpandItem
+
+MagicSearchDockWidget --> IndexManager
+MagicSearchDockWidget --> BanProvider
+MagicSearchDockWidget --> OsmProvider
+MagicSearchDockWidget --> LayerProvider
+MagicSearchDockWidget *-- StayOnTopEventFilter
+MagicSearchDockWidget *-- "0..*" ResultItemDock
+MagicSearchDockWidget *-- "0..*" ExpandItemDock
+MagicSearchDockWidget ..> geo_actions : zoom / surbrillance
+
+ConfigDialog ..> AboutDialog : ouvre
+
+MagicSearchWidget ..> i18n_mod : tr()
+MagicSearchDockWidget ..> i18n_mod : tr()
+IndexManager ..> i18n_mod : tr() (progression)
+MagicSearch ..> i18n_mod : set_lang() / tr()
+
+ResultItem ..> geo_actions : color_for_layer
+ResultItemDock ..> geo_actions : color_for_layer
+ExpandItem ..> geo_actions : color_for_layer
+ExpandItemDock ..> geo_actions : color_for_layer
+
+@enduml

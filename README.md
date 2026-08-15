@@ -11,7 +11,7 @@ Barre de recherche universelle pour QGIS : recherchez simultanement dans les adr
 - **2 styles d'interface** : barre flottante style Maps ou panneau ancrable Qt5
 - **Apercu geometrie** : surbrillance au survol, zoom au clic
 - **Configuration avancee** : exclusion couches/champs, choix du geocodeur, opacite
-- **i18n** : Francais, English, Espanol, Portugues, Deutsch
+- **i18n** : Francais, English, Espanol, Portugues, Deutsch — detection automatique depuis la locale QGIS, changement de langue applique a chaud (placeholders, infobulles, messages d'indexation, menus)
 
 ## Installation
 
@@ -49,6 +49,6 @@ GNU General Public License v3.0 - voir [LICENSE](LICENSE)
 
 ## Auteur
 
-Yoan Laloux - [y.laloux@vichy-communaute.fr](mailto:y.laloux@vichy-communaute.fr)
+**Yoan Laloux** - [linkedin.com/in/ylaloux](https://www.linkedin.com/in/ylaloux/)
 
-Repository : [github.com/Cartoyoyo/magic-search](https://github.com/Cartoyoyo/magic-search)
+Repository : [github.com/Cartoyoyo/Magic_search](https://github.com/Cartoyoyo/Magic_search)

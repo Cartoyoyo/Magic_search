@@ -12,6 +12,8 @@ import unicodedata
 from qgis.PyQt.QtCore import QTimer, pyqtSignal, QObject
 from qgis.core import QgsProject, QgsVectorLayer, QgsMessageLog, Qgis
 
+from ..i18n import tr
+
 try:
     import msgpack
     HAS_MSGPACK = True
@@ -57,14 +59,14 @@ def _index_feature(feat, field_names, layer_index):
             val = feat[fname]
         except Exception:
             continue
-        if val is None or val == '' or val == 0:
+        if val is None or val == '':
             continue
         original = str(val)
         normalized = normalize_text(original)
 
         if fname not in layer_index['fields']:
             layer_index['fields'][fname] = {}
-        
+
         field_values = layer_index['fields'][fname]
         if normalized not in field_values:
             field_values[normalized] = {
@@ -102,7 +104,7 @@ class IndexManager(QObject):
         self._current_iterator = None
         self._current_fields = []
         self._current_layer_data = None
-        
+
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._process_next)
@@ -143,7 +145,7 @@ class IndexManager(QObject):
         for layer_id, layer in all_layers.items():
             if not isinstance(layer, QgsVectorLayer) or not layer.isValid():
                 continue
-            
+
             config = self._layers_config.get(layer_id, {})
             if config.get('excluded', False):
                 continue
@@ -182,27 +184,27 @@ class IndexManager(QObject):
             if not self._queue:
                 self._finalize()
                 return
-            
+
             # Nouvelle couche a traiter
             layer_id = self._queue.pop(0)
             project = QgsProject.instance()
             layer = project.mapLayer(layer_id)
-            
+
             if not layer or not isinstance(layer, QgsVectorLayer) or not layer.isValid():
                 self._timer.start(TICK_MS)
                 return
-            
+
             config = self._layers_config.get(layer_id, {})
             excluded_fields = config.get('excluded_fields', [])
             self._current_fields = [
                 f.name() for f in layer.fields()
                 if f.name() not in excluded_fields
             ]
-            
+
             if not self._current_fields:
                 self._timer.start(TICK_MS)
                 return
-            
+
             self._current_layer_id = layer_id
             self._current_iterator = layer.getFeatures()
             self._current_layer_data = {
@@ -235,8 +237,10 @@ class IndexManager(QObject):
             self._current_layer_id = None
             self._current_layer_data = None
         else:
-            self.indexing_progress.emit(f"Indexation: {self._current_layer_data['name']} ({count} entités)")
-        
+            self.indexing_progress.emit(
+                tr('status_progress', layer=self._current_layer_data['name'], count=count)
+            )
+
         self._timer.start(TICK_MS)
 
     def _finalize(self):
@@ -299,7 +303,8 @@ class IndexManager(QObject):
         return results
 
     def reindex_layer(self, layer_id):
-        """Reindexe une seule couche (apres ajout)."""
+        """Reindexe une seule couche (apres ajout), via le meme traitement
+        incremental par lots que l'indexation initiale (ne bloque pas l'UI)."""
         project = QgsProject.instance()
         layer = project.mapLayer(layer_id)
         if not layer or not isinstance(layer, QgsVectorLayer) or not layer.isValid():
@@ -311,33 +316,27 @@ class IndexManager(QObject):
                 del self._index[layer_id]
             return
 
-        excluded_fields = config.get('excluded_fields', [])
-        field_names = [
-            f.name() for f in layer.fields()
-            if f.name() not in excluded_fields
-        ]
+        if layer_id not in self._queue:
+            self._queue.append(layer_id)
 
-        try:
-            layer_index = {
-                'name': layer.name(),
-                'fingerprint': _layer_fingerprint(layer),
-                'fields': {}
-            }
-            for feat in layer.getFeatures():
-                _index_feature(feat, field_names, layer_index)
-
-            self._index[layer_id] = layer_index
-            self.layer_ready.emit(layer_id)
-            self._save_cache()
-        except Exception as e:
-            QgsMessageLog.logMessage(
-                f"{TAG}: erreur reindexation {layer_id}: {e}",
-                TAG, Qgis.Warning
-            )
+        if self._current_iterator is None and not self._timer.isActive():
+            self._set_sync_state(self.SYNC_SYNCING)
+            self.indexing_started.emit()
+            self._timer.start(TICK_MS)
 
     def remove_layer(self, layer_id):
         if layer_id in self._index:
             del self._index[layer_id]
+        if layer_id in self._queue:
+            self._queue.remove(layer_id)
+        if layer_id == self._current_layer_id:
+            # La couche en cours d'indexation vient d'etre supprimee :
+            # abandonner son iterateur pour ne pas boucler indefiniment
+            # (next() sur un iterateur invalide ne leve pas forcement StopIteration).
+            self._current_iterator = None
+            self._current_layer_id = None
+            self._current_layer_data = None
+            self._current_fields = []
 
     # ---- Cache persistence ----
 

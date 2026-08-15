@@ -11,58 +11,14 @@ import os
 from qgis.PyQt.QtWidgets import (
     QWidget, QLineEdit, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QGraphicsDropShadowEffect,
-    QPushButton, QApplication, QDialog
+    QPushButton, QDialog
 )
-from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal, QPoint, QEvent, QSize, QObject, QRect
-from qgis.PyQt.QtGui import QColor, QFont, QCursor, QPainter, QPen, QBrush, QPixmap
-from qgis.core import (
-    QgsProject, QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-    QgsPointXY, QgsRectangle, QgsGeometry, QgsVectorLayer,
-    QgsMessageLog, Qgis
-)
-from qgis.gui import QgsRubberBand
+from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal, QPoint, QEvent, QRect
+from qgis.PyQt.QtGui import QColor, QCursor, QPainter, QPen, QBrush, QPixmap
 
-class StayOnTopEventFilter(QObject):
-    def __init__(self, dialog, qgis_main_window, reposition_cb=None):
-        super().__init__(dialog)
-        self.dialog = dialog
-        self.qgis_main_window = qgis_main_window
-        self._was_visible = False
-        self._reposition_cb = reposition_cb
-
-    def eventFilter(self, watched, event):
-        if watched == self.qgis_main_window:
-            if event.type() == QEvent.WindowActivate:
-                QTimer.singleShot(0, self._maybe_raise)
-            elif event.type() == QEvent.WindowStateChange:
-                QTimer.singleShot(0, self._sync_visibility)
-            elif event.type() == QEvent.Move and self._reposition_cb:
-                QTimer.singleShot(0, self._reposition_cb)
-        return super().eventFilter(watched, event)
-
-    def _sync_visibility(self):
-        """Cache le widget quand QGIS est reduit, le restaure apres."""
-        if self.qgis_main_window.isMinimized():
-            if self.dialog.isVisible():
-                self._was_visible = True
-                self.dialog.hide()
-        else:
-            if self._was_visible:
-                self._was_visible = False
-                self.dialog.show()
-                if self._reposition_cb:
-                    QTimer.singleShot(0, self._reposition_cb)
-
-    def _maybe_raise(self):
-        """Raise seulement si la fenetre principale QGIS est toujours active
-        (pas une table d'attributs ou autre fenetre secondaire)."""
-        modal = QApplication.activeModalWidget()
-        active_win = QApplication.activeWindow()
-        if (modal is None
-                and self.dialog.isVisible()
-                and not self.dialog.isActiveWindow()
-                and active_win == self.qgis_main_window):
-            self.dialog.raise_()
+from .ui_common import StayOnTopEventFilter
+from .core import geo_actions
+from .i18n import tr
 
 TAG = 'Magic Search'
 
@@ -76,28 +32,8 @@ COLOR_TEXT = '#1e293b'
 COLOR_MUTED = '#64748b'
 COLOR_HIGHLIGHT = '#ff00ff'
 
-# Palette de couleurs pastel pour distinguer les couches
-_LAYER_COLORS = [
-    ('#eef2ff', '#3730a3'),  # indigo
-    ('#fef3c7', '#92400e'),  # ambre
-    ('#dcfce7', '#166534'),  # vert
-    ('#fce7f3', '#9d174d'),  # rose
-    ('#e0f2fe', '#075985'),  # bleu ciel
-    ('#fef9c3', '#854d0e'),  # jaune
-    ('#f3e8ff', '#6b21a8'),  # violet
-    ('#ccfbf1', '#115e59'),  # teal
-    ('#fee2e2', '#991b1b'),  # rouge
-    ('#e0e7ff', '#3b0764'),  # lavande
-]
-_layer_color_map = {}
-
-
-def _color_for_layer(layer_id):
-    """Retourne (bg, fg) pastel unique par couche."""
-    if layer_id not in _layer_color_map:
-        idx = len(_layer_color_map) % len(_LAYER_COLORS)
-        _layer_color_map[layer_id] = _LAYER_COLORS[idx]
-    return _layer_color_map[layer_id]
+# Couleurs de couches et actions geo (zoom/surbrillance) : voir core/geo_actions.py
+_color_for_layer = geo_actions.color_for_layer
 
 SEARCH_BAR_W = 500
 SEARCH_BAR_H = 40
@@ -107,6 +43,7 @@ DRAG_THRESHOLD = 5
 RESIZE_HANDLE = 8      # pixels on each side that trigger resize
 BAR_MIN_W = 200
 BAR_MAX_W = 1200
+LAYER_SEARCH_DEBOUNCE_MS = 250
 
 
 # ============================================================
@@ -302,7 +239,7 @@ class ExpandItem(QFrame):
         """)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(24, 2, 14, 2)
-        lbl = QLabel(f"... {remaining} autre(s) - zoom global")
+        lbl = QLabel(tr('expand_more', count=remaining))
         lbl.setStyleSheet(f'color: {VC_TURQUOISE}; font-size: {font_size}px; font-style: italic; border: none;')
         layout.addWidget(lbl)
 
@@ -446,7 +383,7 @@ class DropdownWidget(QFrame):
                     shown += 1
 
         if not has_any:
-            lbl = QLabel('  Aucun resultat')
+            lbl = QLabel('  ' + tr('no_results'))
             lbl.setStyleSheet(f'color: {COLOR_MUTED}; font-size: 11px; padding: 9px 14px; border: none;')
             self._main_layout.addWidget(lbl)
             self._widgets.append(lbl)
@@ -570,7 +507,7 @@ class MagicSearchWidget(QDialog):
         bar_vlayout.addWidget(input_container)
 
         self._input = QLineEdit()
-        self._input.setPlaceholderText('Magic Search...')
+        self._input.setPlaceholderText(tr('placeholder'))
         self._input.setFrame(False)
         self._input.setStyleSheet(f"""
             QLineEdit {{
@@ -584,7 +521,7 @@ class MagicSearchWidget(QDialog):
         self._btn_clear = QPushButton('\u2715')
         self._btn_clear.setFixedSize(22, 22)
         self._btn_clear.setCursor(QCursor(Qt.PointingHandCursor))
-        self._btn_clear.setToolTip('Effacer')
+        self._btn_clear.setToolTip(tr('tip_clear'))
         self._btn_clear.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; border: none;
@@ -602,7 +539,7 @@ class MagicSearchWidget(QDialog):
         self._btn_config = QPushButton('\u2699')
         self._btn_config.setFixedSize(26, 26)
         self._btn_config.setCursor(QCursor(Qt.PointingHandCursor))
-        self._btn_config.setToolTip('Configuration')
+        self._btn_config.setToolTip(tr('tip_config'))
         self._btn_config.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; border: none;
@@ -617,7 +554,7 @@ class MagicSearchWidget(QDialog):
         self._btn_sync = QPushButton('\u27F3')
         self._btn_sync.setFixedSize(26, 26)
         self._btn_sync.setCursor(QCursor(Qt.PointingHandCursor))
-        self._btn_sync.setToolTip('Synchroniser les couches')
+        self._btn_sync.setToolTip(tr('tip_sync_never'))
         self._btn_sync.clicked.connect(self.sync_requested.emit)
         bar_layout.addWidget(self._btn_sync)
 
@@ -628,7 +565,7 @@ class MagicSearchWidget(QDialog):
         self._btn_collapse = QPushButton('\u25B6')
         self._btn_collapse.setFixedSize(26, 26)
         self._btn_collapse.setCursor(QCursor(Qt.PointingHandCursor))
-        self._btn_collapse.setToolTip('Reduire')
+        self._btn_collapse.setToolTip(tr('tip_collapse'))
         self._btn_collapse.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; border: none;
@@ -668,7 +605,7 @@ class MagicSearchWidget(QDialog):
         self._osm_provider.results_ready.connect(self._on_osm_results)
         self._layer_provider.results_ready.connect(self._on_layer_results)
         self._index_manager.indexing_started.connect(
-            lambda: self._set_status('▶ Indexation en cours... plus que quelques minutes de patience ! (des ralentissements sont possibles)')
+            lambda: self._set_status('▶ ' + tr('status_indexing'))
         )
         self._index_manager.indexing_progress.connect(self._set_status)
         self._index_manager.indexing_finished.connect(self._hide_status)
@@ -678,6 +615,11 @@ class MagicSearchWidget(QDialog):
         self._index_debounce.timeout.connect(self._on_index_updated)
         self._index_manager.layer_ready.connect(self._on_index_changed)
         self._index_manager.indexing_finished.connect(self._on_index_updated)
+
+        self._layer_search_debounce = QTimer()
+        self._layer_search_debounce.setSingleShot(True)
+        self._layer_search_debounce.setInterval(LAYER_SEARCH_DEBOUNCE_MS)
+        self._layer_search_debounce.timeout.connect(self._do_layer_search)
 
         self._iface.mapCanvas().installEventFilter(self)
 
@@ -723,12 +665,18 @@ class MagicSearchWidget(QDialog):
             }}
             QPushButton:hover {{ background: #f1f5f9; }}
         """)
-        tips = {
-            'never': 'Synchronisation requise (jamais synchronise)',
-            'syncing': 'Synchronisation en cours...',
-            'complete': 'Synchronisation complete',
-        }
-        self._btn_sync.setToolTip(tips.get(state, ''))
+        self._sync_state = state
+        self._btn_sync.setToolTip(tr(f'tip_sync_{state}') if state in
+                                  ('never', 'syncing', 'complete') else '')
+
+    def retranslate(self):
+        """Rafraichit les libelles deja construits apres un changement de langue."""
+        self._input.setPlaceholderText(tr('placeholder'))
+        self._btn_clear.setToolTip(tr('tip_clear'))
+        self._btn_config.setToolTip(tr('tip_config'))
+        self._btn_collapse.setToolTip(tr('tip_collapse'))
+        self._update_sync_style(self._sync_state)
+        # Les resultats sont reconstruits a chaque frappe : rien a retraduire ici.
 
     # ========================================
     # Collapse / Expand
@@ -940,6 +888,7 @@ class MagicSearchWidget(QDialog):
     def _on_text_changed(self, text):
         self._btn_clear.setVisible(bool(text))
         if not text or len(text) < 2:
+            self._layer_search_debounce.stop()
             self._hide_dropdown()
             self._ban_results = []
             self._osm_results = []
@@ -949,7 +898,12 @@ class MagicSearchWidget(QDialog):
             return
         self._ban_provider.search(text)
         self._osm_provider.search(text)
-        self._layer_provider.search(text)
+        self._layer_search_debounce.start()
+
+    def _do_layer_search(self):
+        text = self._input.text()
+        if text and len(text) >= 2:
+            self._layer_provider.search(text)
 
     def _on_ban_results(self, results):
         self._ban_results = results
@@ -1004,99 +958,23 @@ class MagicSearchWidget(QDialog):
             self._highlight_features(data)
 
     def _zoom_to_ban(self, data):
-        canvas = self._iface.mapCanvas()
-        crs_src = QgsCoordinateReferenceSystem('EPSG:4326')
-        crs_dst = canvas.mapSettings().destinationCrs()
-        transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance())
-        point = transform.transform(QgsPointXY(data['lon'], data['lat']))
-        canvas.setCenter(point)
-        canvas.zoomScale(2000)
-        canvas.refresh()
-        self._show_point_rubber(point, canvas)
+        point = geo_actions.zoom_to_point(self._iface, data['lon'], data['lat'])
+        self._rubber_band = geo_actions.make_point_rubber(self._iface.mapCanvas(), point)
 
     def _highlight_ban(self, data):
-        canvas = self._iface.mapCanvas()
-        crs_src = QgsCoordinateReferenceSystem('EPSG:4326')
-        crs_dst = canvas.mapSettings().destinationCrs()
-        transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance())
-        point = transform.transform(QgsPointXY(data['lon'], data['lat']))
-        self._show_point_rubber(point, canvas)
+        point = geo_actions.transform_point(self._iface, data['lon'], data['lat'])
+        self._rubber_band = geo_actions.make_point_rubber(self._iface.mapCanvas(), point)
 
     def _zoom_to_features(self, data):
-        layer_id = data.get('layer_id')
-        fids = data.get('fids', [])
-        if not layer_id or not fids:
-            return
-        layer = QgsProject.instance().mapLayer(layer_id)
-        if not layer:
-            return
-        canvas = self._iface.mapCanvas()
-        combined = QgsGeometry()
-        for fid in fids:
-            feat = layer.getFeature(fid)
-            if feat.hasGeometry():
-                if combined.isEmpty():
-                    combined = QgsGeometry(feat.geometry())
-                else:
-                    combined = combined.combine(feat.geometry())
-        if not combined.isEmpty():
-            crs_src = layer.crs()
-            crs_dst = canvas.mapSettings().destinationCrs()
-            if crs_src != crs_dst:
-                transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance())
-                combined.transform(transform)
-            canvas.setExtent(combined.boundingBox())
-            if canvas.scale() < 2000:
-                canvas.setCenter(combined.centroid().asPoint())
-                canvas.zoomScale(2000)
-            else:
-                # Ajouter 10% de marge pour ne pas que l'objet touche les bords
-                canvas.zoomScale(canvas.scale() * 1.1)
-            canvas.refresh()
-        layer.selectByIds(fids)
+        geo_actions.zoom_to_features(self._iface, data.get('layer_id'), data.get('fids', []))
 
     def _highlight_features(self, data):
-        layer_id = data.get('layer_id')
-        fids = data.get('fids', [])
-        if not layer_id or not fids:
-            return
-        layer = QgsProject.instance().mapLayer(layer_id)
-        if not layer:
-            return
-        canvas = self._iface.mapCanvas()
-        self._rubber_band = QgsRubberBand(canvas, layer.geometryType())
-        self._rubber_band.setColor(QColor(COLOR_HIGHLIGHT))
-        self._rubber_band.setWidth(3)
-        self._rubber_band.setFillColor(QColor(255, 0, 255, 40))
-        crs_src = layer.crs()
-        crs_dst = canvas.mapSettings().destinationCrs()
-        need_transform = crs_src != crs_dst
-        transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance()) if need_transform else None
-        for fid in fids[:20]:
-            feat = layer.getFeature(fid)
-            if feat.hasGeometry():
-                geom = QgsGeometry(feat.geometry())
-                if transform:
-                    geom.transform(transform)
-                self._rubber_band.addGeometry(geom, None)
-
-    def _show_point_rubber(self, point, canvas):
-        try:
-            geom_type = Qgis.GeometryType.Point
-        except AttributeError:
-            from qgis.core import QgsWkbTypes
-            geom_type = QgsWkbTypes.PointGeometry
-        self._rubber_band = QgsRubberBand(canvas, geom_type)
-        self._rubber_band.setColor(QColor(VC_TURQUOISE))
-        self._rubber_band.setWidth(3)
-        self._rubber_band.setIcon(QgsRubberBand.ICON_CIRCLE)
-        self._rubber_band.setIconSize(15)
-        self._rubber_band.addPoint(point)
+        self._rubber_band = geo_actions.make_features_rubber(
+            self._iface, data.get('layer_id'), data.get('fids', [])
+        )
 
     def _clear_rubber_band(self):
-        if self._rubber_band:
-            self._rubber_band.reset()
-            self._rubber_band = None
+        self._rubber_band = geo_actions.clear_rubber(self._rubber_band)
 
     # ========================================
     # Public API

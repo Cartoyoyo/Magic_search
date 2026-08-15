@@ -4,6 +4,7 @@ Utilise QgsNetworkAccessManager (pas de fenetre parasite SSL/proxy).
 Respecte la politique Nominatim : 1 requete/s max, User-Agent obligatoire.
 """
 
+import os
 import json
 import urllib.parse
 from qgis.PyQt.QtCore import QObject, QUrl, QTimer, pyqtSignal
@@ -17,6 +18,24 @@ NOMINATIM_URL = (
 )
 DEBOUNCE_MS = 1200
 TAG = 'Magic Search'
+
+
+def _plugin_version():
+    """Version lue dans metadata.txt : le User-Agent Nominatim ne peut pas
+    se desynchroniser de la version publiee du plugin."""
+    meta = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'metadata.txt')
+    try:
+        with open(meta, encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('version='):
+                    return line.split('=', 1)[1].strip()
+    except Exception:
+        pass
+    return '0.0.0'
+
+
+# Politique Nominatim : User-Agent identifiant l'application + moyen de contact.
+USER_AGENT = f'QGIS-MagicSearch/{_plugin_version()} (+https://github.com/Cartoyoyo/Magic_search)'
 
 
 class OsmProvider(QObject):
@@ -55,9 +74,7 @@ class OsmProvider(QObject):
         )
         url = QUrl(url_str)
         request = QNetworkRequest(url)
-        request.setRawHeader(
-            b'User-Agent', b'QGIS-MagicSearch/1.0'
-        )
+        request.setRawHeader(b'User-Agent', USER_AGENT.encode('utf-8'))
         request.setRawHeader(b'Accept-Language', b'fr,en')
         self._reply = self._nam.get(request)
         self._reply.finished.connect(self._on_finished)

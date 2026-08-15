@@ -6,13 +6,12 @@ from qgis.PyQt.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QFrame
 )
 from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal
-from qgis.PyQt.QtGui import QColor, QCursor, QPixmap
-from qgis.core import (
-    QgsProject, QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-    QgsPointXY, QgsGeometry, Qgis, QgsMessageLog
-)
-from qgis.gui import QgsRubberBand
+from qgis.PyQt.QtGui import QCursor, QPixmap
 import os
+
+from .ui_common import StayOnTopEventFilter
+from .core import geo_actions
+from .i18n import tr
 
 TAG = 'Magic Search'
 VC_NAVY = '#13235b'
@@ -23,27 +22,10 @@ ITEM_H = 26
 EXPAND_H = 20
 MAX_RESULTS = 15
 MAX_LIST_H = 350
+LAYER_SEARCH_DEBOUNCE_MS = 250
 
-_LAYER_COLORS = [
-    ('#eef2ff', '#3730a3'),
-    ('#fef3c7', '#92400e'),
-    ('#dcfce7', '#166534'),
-    ('#fce7f3', '#9d174d'),
-    ('#e0f2fe', '#075985'),
-    ('#fef9c3', '#854d0e'),
-    ('#f3e8ff', '#6b21a8'),
-    ('#ccfbf1', '#115e59'),
-    ('#fee2e2', '#991b1b'),
-    ('#e0e7ff', '#3b0764'),
-]
-_layer_color_map = {}
-
-
-def _color_for_layer(layer_id):
-    if layer_id not in _layer_color_map:
-        idx = len(_layer_color_map) % len(_LAYER_COLORS)
-        _layer_color_map[layer_id] = _LAYER_COLORS[idx]
-    return _layer_color_map[layer_id]
+# Couleurs de couches et actions geo (zoom/surbrillance) : voir core/geo_actions.py
+_color_for_layer = geo_actions.color_for_layer
 
 
 class ResultItemDock(QFrame):
@@ -148,7 +130,7 @@ class ExpandItemDock(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 2, 8, 2)
 
-        self.lbl = QLabel(f"... {remaining} autre(s) - zoom global")
+        self.lbl = QLabel(tr('expand_more', count=remaining))
         self.lbl.setStyleSheet(f"color: {VC_TURQUOISE}; font-style: italic; font-size: {font_size}px; border: none; background: transparent;")
         layout.addWidget(self.lbl)
 
@@ -195,6 +177,10 @@ class MagicSearchDockWidget(QDockWidget):
         self._osm_provider = osm_provider
         self._layer_provider = layer_provider
 
+        main_win = iface.mainWindow()
+        self.event_filter = StayOnTopEventFilter(self, main_win)
+        main_win.installEventFilter(self.event_filter)
+
         self._ban_results = []
         self._osm_results = []
         self._layer_results = []
@@ -231,7 +217,7 @@ class MagicSearchDockWidget(QDockWidget):
             input_layout.addWidget(self._logo_label)
 
         self._input = QLineEdit()
-        self._input.setPlaceholderText('Rechercher adresses, parcelles...')
+        self._input.setPlaceholderText(tr('placeholder'))
         self._input.setStyleSheet("""
             QLineEdit {
                 background: white; border: 1px solid #cbd5e1;
@@ -246,7 +232,7 @@ class MagicSearchDockWidget(QDockWidget):
         self._btn_clear = QPushButton('\u2715')
         self._btn_clear.setFixedSize(24, 24)
         self._btn_clear.setCursor(QCursor(Qt.PointingHandCursor))
-        self._btn_clear.setToolTip('Effacer')
+        self._btn_clear.setToolTip(tr('tip_clear'))
         self._btn_clear.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; border: none;
@@ -262,7 +248,7 @@ class MagicSearchDockWidget(QDockWidget):
         self._btn_sync = QPushButton('\u27F3')
         self._btn_sync.setFixedSize(24, 24)
         self._btn_sync.setCursor(QCursor(Qt.PointingHandCursor))
-        self._btn_sync.setToolTip('Synchroniser les couches')
+        self._btn_sync.setToolTip(tr('tip_sync_never'))
         self._btn_sync.clicked.connect(self.sync_requested.emit)
         input_layout.addWidget(self._btn_sync)
 
@@ -273,7 +259,7 @@ class MagicSearchDockWidget(QDockWidget):
         self._btn_config = QPushButton('\u2699')
         self._btn_config.setFixedSize(24, 24)
         self._btn_config.setCursor(QCursor(Qt.PointingHandCursor))
-        self._btn_config.setToolTip('Configuration')
+        self._btn_config.setToolTip(tr('tip_config'))
         self._btn_config.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; border: none;
@@ -309,6 +295,11 @@ class MagicSearchDockWidget(QDockWidget):
         self._index_manager.layer_ready.connect(self._on_index_changed)
         self._index_manager.indexing_finished.connect(self._on_index_updated)
 
+        self._layer_search_debounce = QTimer()
+        self._layer_search_debounce.setSingleShot(True)
+        self._layer_search_debounce.setInterval(LAYER_SEARCH_DEBOUNCE_MS)
+        self._layer_search_debounce.timeout.connect(self._do_layer_search)
+
     def set_opacity(self, opacity):
         self._opacity = opacity
         self._update_styles()
@@ -337,6 +328,7 @@ class MagicSearchDockWidget(QDockWidget):
     def _on_text_changed(self, text):
         self._btn_clear.setVisible(bool(text))
         if not text or len(text) < 2:
+            self._layer_search_debounce.stop()
             self._clear_list()
             self._ban_results = []
             self._osm_results = []
@@ -346,7 +338,12 @@ class MagicSearchDockWidget(QDockWidget):
             return
         self._ban_provider.search(text)
         self._osm_provider.search(text)
-        self._layer_provider.search(text)
+        self._layer_search_debounce.start()
+
+    def _do_layer_search(self):
+        text = self._input.text()
+        if text and len(text) >= 2:
+            self._layer_provider.search(text)
 
     def _on_ban_results(self, results):
         self._ban_results = results
@@ -464,7 +461,7 @@ class MagicSearchDockWidget(QDockWidget):
                 shown += 1
 
         if shown == 0 and len(self._input.text()) >= 2:
-            lbl = QLabel("  Aucun resultat")
+            lbl = QLabel("  " + tr('no_results'))
             lbl.setStyleSheet("color: #94a3b8; font-size: 11px; padding: 8px; background: transparent;")
             self._results_layout.addWidget(lbl)
             self._widgets.append(lbl)
@@ -536,94 +533,23 @@ class MagicSearchDockWidget(QDockWidget):
             self._highlight_features(data)
 
     def _zoom_to_ban(self, data):
-        canvas = self._iface.mapCanvas()
-        crs_src = QgsCoordinateReferenceSystem('EPSG:4326')
-        crs_dst = canvas.mapSettings().destinationCrs()
-        transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance())
-        point = transform.transform(QgsPointXY(data['lon'], data['lat']))
-        canvas.setCenter(point)
-        canvas.zoomScale(2000)
-        canvas.refresh()
-        self._show_point_rubber(point, canvas)
+        point = geo_actions.zoom_to_point(self._iface, data['lon'], data['lat'])
+        self._rubber_band = geo_actions.make_point_rubber(self._iface.mapCanvas(), point)
 
     def _highlight_ban(self, data):
-        canvas = self._iface.mapCanvas()
-        crs_src = QgsCoordinateReferenceSystem('EPSG:4326')
-        crs_dst = canvas.mapSettings().destinationCrs()
-        transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance())
-        point = transform.transform(QgsPointXY(data['lon'], data['lat']))
-        self._show_point_rubber(point, canvas)
+        point = geo_actions.transform_point(self._iface, data['lon'], data['lat'])
+        self._rubber_band = geo_actions.make_point_rubber(self._iface.mapCanvas(), point)
 
     def _zoom_to_features(self, data):
-        layer_id = data.get('layer_id')
-        fids = data.get('fids', [])
-        if not layer_id or not fids: return
-        layer = QgsProject.instance().mapLayer(layer_id)
-        if not layer: return
-        canvas = self._iface.mapCanvas()
-        combined = QgsGeometry()
-        for fid in fids:
-            feat = layer.getFeature(fid)
-            if feat.hasGeometry():
-                if combined.isEmpty():
-                    combined = QgsGeometry(feat.geometry())
-                else:
-                    combined = combined.combine(feat.geometry())
-        if not combined.isEmpty():
-            crs_src = layer.crs()
-            crs_dst = canvas.mapSettings().destinationCrs()
-            if crs_src != crs_dst:
-                transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance())
-                combined.transform(transform)
-            canvas.setExtent(combined.boundingBox())
-            if canvas.scale() < 2000:
-                canvas.setCenter(combined.centroid().asPoint())
-                canvas.zoomScale(2000)
-            else:
-                canvas.zoomScale(canvas.scale() * 1.1)
-            canvas.refresh()
-        layer.selectByIds(fids)
+        geo_actions.zoom_to_features(self._iface, data.get('layer_id'), data.get('fids', []))
 
     def _highlight_features(self, data):
-        layer_id = data.get('layer_id')
-        fids = data.get('fids', [])
-        if not layer_id or not fids: return
-        layer = QgsProject.instance().mapLayer(layer_id)
-        if not layer: return
-        canvas = self._iface.mapCanvas()
-        self._rubber_band = QgsRubberBand(canvas, layer.geometryType())
-        self._rubber_band.setColor(QColor(COLOR_HIGHLIGHT))
-        self._rubber_band.setWidth(3)
-        self._rubber_band.setFillColor(QColor(255, 0, 255, 40))
-        crs_src = layer.crs()
-        crs_dst = canvas.mapSettings().destinationCrs()
-        need_transform = crs_src != crs_dst
-        transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance()) if need_transform else None
-        for fid in fids[:20]:
-            feat = layer.getFeature(fid)
-            if feat.hasGeometry():
-                geom = QgsGeometry(feat.geometry())
-                if transform:
-                    geom.transform(transform)
-                self._rubber_band.addGeometry(geom, None)
-
-    def _show_point_rubber(self, point, canvas):
-        try:
-            geom_type = Qgis.GeometryType.Point
-        except AttributeError:
-            from qgis.core import QgsWkbTypes
-            geom_type = QgsWkbTypes.PointGeometry
-        self._rubber_band = QgsRubberBand(canvas, geom_type)
-        self._rubber_band.setColor(QColor(VC_TURQUOISE))
-        self._rubber_band.setWidth(3)
-        self._rubber_band.setIcon(QgsRubberBand.ICON_CIRCLE)
-        self._rubber_band.setIconSize(15)
-        self._rubber_band.addPoint(point)
+        self._rubber_band = geo_actions.make_features_rubber(
+            self._iface, data.get('layer_id'), data.get('fids', [])
+        )
 
     def _clear_rubber_band(self):
-        if self._rubber_band:
-            self._rubber_band.reset()
-            self._rubber_band = None
+        self._rubber_band = geo_actions.clear_rubber(self._rubber_band)
 
     def _update_sync_style(self, state):
         """Met a jour la couleur du bouton sync selon l'etat."""
@@ -636,12 +562,17 @@ class MagicSearchDockWidget(QDockWidget):
             }}
             QPushButton:hover {{ background: #f1f5f9; }}
         """)
-        tips = {
-            'never': 'Synchronisation requise (jamais synchronise)',
-            'syncing': 'Synchronisation en cours...',
-            'complete': 'Synchronisation complete',
-        }
-        self._btn_sync.setToolTip(tips.get(state, ''))
+        self._sync_state = state
+        self._btn_sync.setToolTip(tr(f'tip_sync_{state}') if state in
+                                  ('never', 'syncing', 'complete') else '')
+
+    def retranslate(self):
+        """Rafraichit les libelles deja construits apres un changement de langue."""
+        self._input.setPlaceholderText(tr('placeholder'))
+        self._btn_clear.setToolTip(tr('tip_clear'))
+        self._btn_config.setToolTip(tr('tip_config'))
+        self._update_sync_style(self._sync_state)
+        # Les resultats sont reconstruits a chaque frappe : rien a retraduire ici.
 
     def set_focus(self):
         self._input.setFocus()

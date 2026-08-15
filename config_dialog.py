@@ -14,6 +14,11 @@ from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QFont, QPixmap
 from qgis.core import QgsProject, QgsVectorLayer
 
+from .i18n import tr
+
+AUTHOR_URL = 'https://www.linkedin.com/in/ylaloux/'
+REPO_URL = 'https://github.com/Cartoyoyo/Magic_search'
+
 LANGS = ['fr', 'en', 'es', 'pt', 'de']
 LANG_LABELS = {
     'fr': 'Francais', 'en': 'English', 'es': 'Espanol',
@@ -188,13 +193,19 @@ class AboutDialog(QDialog):
 
         _author = _meta_vals['author']
         _email = _meta_vals['email']
-        if _email:
-            lbl_author = QLabel(f'<a href="mailto:{_email}">{_author}</a>')
-        else:
-            lbl_author = QLabel(_author)
+
+        # Auteur : lien vers le profil LinkedIn
+        lbl_author = QLabel(f'<a href="{AUTHOR_URL}">{_author}</a>')
         lbl_author.setOpenExternalLinks(True)
         lbl_author.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl_author)
+
+        if _email:
+            lbl_email = QLabel(f'<a href="mailto:{_email}">{_email}</a>')
+            lbl_email.setOpenExternalLinks(True)
+            lbl_email.setAlignment(Qt.AlignCenter)
+            lbl_email.setStyleSheet('font-size: 10px;')
+            layout.addWidget(lbl_email)
 
         # Licence
         lbl_license = QLabel(
@@ -206,9 +217,7 @@ class AboutDialog(QDialog):
         layout.addWidget(lbl_license)
 
         # GitHub
-        lbl_github = QLabel(
-            '<a href="https://github.com/Cartoyoyo/magic-search">GitHub</a>'
-        )
+        lbl_github = QLabel(f'<a href="{REPO_URL}">GitHub</a>')
         lbl_github.setOpenExternalLinks(True)
         lbl_github.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl_github)
@@ -355,9 +364,9 @@ class ConfigDialog(QDialog):
                 size_kb = os.path.getsize(cache_file) / 1024
                 path_text = f"{cache_file}  ({size_kb:.0f} Ko)"
             else:
-                path_text = f"{cache_file}  (pas encore cree)"
+                path_text = f"{cache_file}  {tr('cache_not_created', lang=self.lang)}"
         else:
-            path_text = "(projet non enregistre)"
+            path_text = tr('cache_no_project', lang=self.lang)
         self._lbl_cache_path = QLabel(path_text)
         self._lbl_cache_path.setWordWrap(True)
         self._lbl_cache_path.setStyleSheet(
@@ -492,6 +501,7 @@ class ConfigDialog(QDialog):
             'geocoder': self._combo_geocoder.currentData(),
             'max_cache_mb': self._spin_cache.value(),
             'opacity': self._slider_opacity.value(),
+            'lang': self.lang,
             'layers': {},
         }
 

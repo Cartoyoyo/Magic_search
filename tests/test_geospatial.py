@@ -64,10 +64,18 @@ def _setup_qgis_mocks():
 
 _setup_qgis_mocks()
 
-# Ajouter le dossier parent au path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+# Importer via le package du plugin (et non 'core' seul) pour que les imports
+# relatifs internes (ex: 'from ..i18n import tr') se resolvent comme dans QGIS.
+_PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(_PLUGIN_DIR))
+_PKG = os.path.basename(_PLUGIN_DIR)
 
-from core.index_manager import normalize_text, _layer_fingerprint, _get_cache_path, IndexManager
+_index_manager = __import__(_PKG + '.core.index_manager', fromlist=['*'])
+normalize_text = _index_manager.normalize_text
+_layer_fingerprint = _index_manager._layer_fingerprint
+_get_cache_path = _index_manager._get_cache_path
+_index_feature = _index_manager._index_feature
+IndexManager = _index_manager.IndexManager
 
 
 class TestNormalizeText(unittest.TestCase):
@@ -135,6 +143,45 @@ class TestLayerFingerprint(unittest.TestCase):
         fp1 = _layer_fingerprint(self._make_mock_layer())
         fp2 = _layer_fingerprint(self._make_mock_layer())
         self.assertEqual(fp1, fp2)
+
+
+class TestIndexFeature(unittest.TestCase):
+    """Tests de _index_feature (indexation des valeurs d'un champ)."""
+
+    class MockFeature:
+        def __init__(self, values, fid=1):
+            self._values = values
+            self._fid = fid
+
+        def __getitem__(self, key):
+            return self._values[key]
+
+        def id(self):
+            return self._fid
+
+    def test_zero_value_is_indexed(self):
+        layer_index = {'fields': {}}
+        feat = self.MockFeature({'numero': 0})
+        _index_feature(feat, ['numero'], layer_index)
+        self.assertIn(normalize_text('0'), layer_index['fields']['numero'])
+
+    def test_zero_float_value_is_indexed(self):
+        layer_index = {'fields': {}}
+        feat = self.MockFeature({'score': 0.0})
+        _index_feature(feat, ['score'], layer_index)
+        self.assertIn(normalize_text('0.0'), layer_index['fields']['score'])
+
+    def test_empty_string_not_indexed(self):
+        layer_index = {'fields': {}}
+        feat = self.MockFeature({'nom': ''})
+        _index_feature(feat, ['nom'], layer_index)
+        self.assertNotIn('nom', layer_index['fields'])
+
+    def test_none_value_not_indexed(self):
+        layer_index = {'fields': {}}
+        feat = self.MockFeature({'nom': None})
+        _index_feature(feat, ['nom'], layer_index)
+        self.assertNotIn('nom', layer_index['fields'])
 
 
 class TestGetCachePath(unittest.TestCase):
