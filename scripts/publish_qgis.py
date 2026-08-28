@@ -8,6 +8,7 @@ Variables d'environnement attendues :
   OSGEO_USERNAME, OSGEO_PASSWORD - identifiants du compte OSGeo
   GITHUB_REF_NAME                - fourni automatiquement par GitHub Actions (ex: v1.2.0)
 """
+import configparser
 import os
 import re
 import sys
@@ -30,6 +31,26 @@ def read_metadata_version():
             if m:
                 return m.group(1).strip()
     raise RuntimeError("Impossible de trouver 'version=' dans metadata.txt")
+
+
+def check_metadata_parses():
+    """Relit metadata.txt comme le fait plugins.qgis.org.
+
+    Le serveur le charge avec configparser, interpolation activee : un '%'
+    isole dans le changelog ou la description fait echouer l'upload apres
+    coup, avec un message peu lisible. Autant s'en apercevoir ici, avant de
+    construire le ZIP.
+    """
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(METADATA_PATH, encoding='utf-8')
+        for key in parser['general']:
+            parser['general'][key]
+    except configparser.Error as exc:
+        raise RuntimeError(
+            "metadata.txt est illisible pour plugins.qgis.org : %s\n"
+            "Un '%%' isole doit etre double ('%%%%') ou reformule." % exc
+        )
 
 
 def check_tag_matches_version(tag_name, metadata_version):
@@ -78,6 +99,7 @@ def main():
         print('GITHUB_REF_NAME manquant (ce script doit etre lance depuis un tag).', file=sys.stderr)
         sys.exit(1)
 
+    check_metadata_parses()
     metadata_version = read_metadata_version()
     check_tag_matches_version(tag_name, metadata_version)
 

@@ -29,7 +29,7 @@ changelog=1.5.0
     - Deduplication : une meme table chargee plusieurs fois dans le projet (copies, couches d'etiquettes) n'est indexee, stockee et gardee en memoire qu'une seule fois
     - Dates et nombres a decimales ne sont plus indexes par defaut ; une colonne typee decimale mais ne contenant que des entiers (numero de regard, diametre...) reste indexee, detectee au fil du parcours
     - Nouvelle option "Indexer aussi les dates et les nombres a decimales" dans la configuration
-    - Nouveau format de cache : un dossier par projet, un fichier par index, conteneur binaire compresse en LZMA (-72% de disque, relecture deux fois plus rapide)
+    - Nouveau format de cache : un dossier par projet, un fichier par index, conteneur binaire compresse en LZMA (pres de quatre fois moins de disque, relecture deux fois plus rapide)
     - Les preferences (style, langue, geocodeur, cache, opacite) sont memorisees globalement et ne sont plus perdues en changeant de projet
     - Le chemin du cache est cliquable dans la configuration et ouvre le dossier
     - Modifier les champs exclus invalide desormais le cache de la couche concernee

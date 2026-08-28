@@ -411,7 +411,7 @@ Les tests s'executent **hors QGIS** : les modules `qgis.core` et `qgis.PyQt` son
 
 | Version | Notes |
 |---------|-------|
-| **1.5.0** | Recherche jusqu'a 25x plus rapide (index en colonnes compactes balayees en C) — rechargement instantane du plugin — deduplication des tables chargees plusieurs fois — dates et decimales exclues par defaut, avec detection des colonnes decimales ne contenant que des entiers — nouveau format de cache LZMA (-72 % de disque) — preferences memorisees globalement |
+| **1.5.0** | Recherche jusqu'a 25x plus rapide (index en colonnes compactes balayees en C) — rechargement instantane du plugin — deduplication des tables chargees plusieurs fois — dates et decimales exclues par defaut, avec detection des colonnes decimales ne contenant que des entiers — nouveau format de cache LZMA (pres de quatre fois moins de disque) — preferences memorisees globalement |
 | **1.4.0** | Recherche de coordonnees WGS84 / Lambert 93 — copie des coordonnees — rayon de geocodage inverse configurable — filtre BAN par code postal — favoris et historique dans un menu **⋮** — repere persistant du dernier point interroge |
 | **1.3.0** | Menu vue de rue : Google Street View, Mapillary, Panoramax, Bing Streetside |
 | **1.2.0** | Bouton **?** : geocodage inverse BAN, avec message discret si aucune adresse dans le rayon |
