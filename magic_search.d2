@@ -1,0 +1,223 @@
+# Magic Search - architecture du plugin QGIS
+# Rendu : d2 magic_search.d2 magic_search.svg
+#         d2 --theme 200 --layout elk magic_search.d2 magic_search.svg
+
+title: |md
+  # Magic Search
+  Architecture du plugin QGIS
+| {near: top-center}
+
+direction: right
+
+entry: __init__.py {
+  classFactory: {
+    shape: class
+    +classFactory(iface): MagicSearch
+  }
+}
+
+plugin: plugin_main.py {
+  MagicSearch: {
+    shape: class
+
+    -iface
+    -search_widget: MagicSearchWidget
+    -dock_widget: MagicSearchDockWidget
+    -index_manager: IndexManager
+    -ban_provider: BanProvider
+    -osm_provider: OsmProvider
+    -layer_provider: LayerProvider
+    -reverse_tool: ReverseGeocodeTool
+    -street_view_tool: StreetViewTool
+    -favorite_tool: FavoriteTool
+    -_config: dict
+
+    +initGui()
+    +unload()
+    -_build_ui()
+    -_apply_config()
+    -_open_config()
+    -_force_reindex()
+    -_load_config()
+    -_save_config()
+  }
+
+  note: |md
+    Preferences applicatives dans `QSettings`
+    (globales), couches exclues et favoris
+    dans le projet `.qgz`.
+  |
+}
+
+ui: Interface {
+  style.stroke-dash: 3
+
+  MagicSearchWidget: {
+    shape: class
+    "barre flottante, style Maps"
+
+    +set_favorites(items)
+    +show_reverse_address(label)
+    +retranslate()
+  }
+
+  MagicSearchDockWidget: {
+    shape: class
+    "panneau ancrable Qt5"
+
+    +set_favorites(items)
+    +show_reverse_address(label)
+    +retranslate()
+  }
+
+  ConfigDialog: {
+    shape: class
+    +config_changed(dict)
+    +reindex_requested()
+  }
+}
+
+providers: providers/ {
+  BanProvider: {
+    shape: class
+    "api-adresse.data.gouv.fr"
+    +search(query)
+    +results_ready(list)
+  }
+  OsmProvider: {
+    shape: class
+    "Nominatim"
+    +search(query)
+    +results_ready(list)
+  }
+  BanReverseProvider: {
+    shape: class
+    "geocodage inverse"
+    +reverse(lon, lat)
+  }
+  LayerProvider: {
+    shape: class
+    +search(query, max_per_field)
+    +results_ready(list)
+  }
+}
+
+core: core/ {
+  IndexManager: {
+    shape: class
+
+    -_index: "layer_id -> {name, key, fields}"
+    -_by_key: "cle -> colonnes partagees"
+    -_manifest: "layer_id -> {file, key, name}"
+    -_pending: list
+    -_queue: list
+
+    +start_indexing(force)
+    +search(query, max_per_field): list
+    +reindex_layer(layer_id)
+    +remove_layer(layer_id)
+    +stop()
+    -_triage_next()
+    -_process_next()
+    -_attach(layer_id, name, key, fields)
+    -_save_key_cache(key, data)
+    -_load_key_cache(key)
+    -_prune_cache()
+  }
+
+  indexation: "Indexation (module)" {
+    shape: class
+    +_layer_fingerprint(layer): str
+    +_index_key(fingerprint, exclus, all_types): str
+    +_classify_fields(layer, exclus, all_types)
+    +_is_integral(val): bool
+    +_index_feature(feat, champs, index, watched)
+    +_to_columnar(fields): dict
+  }
+
+  recherche: "Recherche (module)" {
+    shape: class
+    +normalize_text(text): str
+    +_layer_name_score(nom, q): int
+    +_search_column(col, q, n): "(hits, total)"
+  }
+
+  cache: "Cache v4 (module)" {
+    shape: class
+    +_pack_index(name, columns): bytes
+    +_unpack_index(buf): "(name, columns)"
+    +_compress(data): "lzma preset 3"
+    +_decompress(data): bytes
+  }
+
+  outils: "Outils carte" {
+    ReverseGeocodeTool: {shape: class}
+    StreetViewTool: {shape: class}
+    FavoriteTool: {shape: class}
+  }
+
+  geo_actions: {
+    shape: class
+    +zoom_to_features(iface, layer_id, fids)
+    +make_features_rubber(iface, layer_id, fids)
+    +zoom_to_point(iface, lon, lat)
+  }
+
+  coord_parser: {
+    shape: class
+    +parse_coordinates(text)
+    +to_lonlat(coord)
+  }
+}
+
+colonne: |md
+  ### Une colonne d'index
+
+  Un champ indexe n'est plus un dictionnaire
+  de valeurs mais quelques blocs compacts :
+
+  - `hay` — valeurs normalisees, separees par `\x00`
+  - `starts` — offset de chaque valeur (`array('i')`)
+  - `orig` / `orig_starts` — valeurs d'origine, si differentes
+  - `fids` / `fid_starts` — identifiants, a plat (`array('q')`)
+
+  La recherche devient un `str.find()` a vitesse C,
+  et la relecture du cache un `array.frombytes()`.
+|
+
+i18n: i18n.py {
+  shape: class
+  +tr(key, lang, **kwargs)
+  +set_lang(code)
+  +current_lang()
+}
+
+# --- relations ---
+entry.classFactory -> plugin.MagicSearch: instancie
+
+plugin.MagicSearch -> ui.MagicSearchWidget: "style = maps"
+plugin.MagicSearch -> ui.MagicSearchDockWidget: "style = qt5"
+plugin.MagicSearch -> ui.ConfigDialog: ouvre
+plugin.MagicSearch -> core.IndexManager: QTimer.singleShot(0)
+plugin.MagicSearch -> core.outils
+
+ui.MagicSearchWidget -> providers.BanProvider: search()
+ui.MagicSearchWidget -> providers.OsmProvider: search()
+ui.MagicSearchWidget -> providers.LayerProvider: search()
+ui.MagicSearchWidget -> core.coord_parser
+ui.MagicSearchWidget -> core.geo_actions: "zoom / surbrillance"
+ui.MagicSearchDockWidget -> providers.LayerProvider: search()
+ui.ConfigDialog -> plugin.MagicSearch: config_changed
+
+providers.LayerProvider -> core.IndexManager: search()
+core.outils.ReverseGeocodeTool -> providers.BanReverseProvider
+
+core.IndexManager -> core.indexation: "parcours par lots"
+core.IndexManager -> core.recherche
+core.IndexManager -> core.cache: "<cle>.idx"
+core.indexation -> colonne: produit
+colonne -> core.recherche: balaye
+colonne -> core.cache: serialise
+
+ui -> i18n: tr()
+plugin -> i18n: set_lang()

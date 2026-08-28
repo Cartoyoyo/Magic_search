@@ -29,9 +29,14 @@ def _setup_qgis_mocks():
     def fake_pyqtSignal(*args, **kwargs):
         return property(lambda self: None)
 
+    class FakeQVariant:
+        # Valeurs reelles de QVariant.Type, utilisees pour classer les champs
+        Int, Double, String, Date, Time, DateTime = 2, 6, 10, 14, 15, 16
+
     qtcore_mod.QTimer = FakeQTimer
     qtcore_mod.QObject = FakeQObject
     qtcore_mod.pyqtSignal = fake_pyqtSignal
+    qtcore_mod.QVariant = FakeQVariant
 
     # qgis.core
     core_mod = types.ModuleType('qgis.core')
@@ -73,8 +78,11 @@ _PKG = os.path.basename(_PLUGIN_DIR)
 _index_manager = __import__(_PKG + '.core.index_manager', fromlist=['*'])
 normalize_text = _index_manager.normalize_text
 _layer_fingerprint = _index_manager._layer_fingerprint
-_get_cache_path = _index_manager._get_cache_path
+_get_cache_dir = _index_manager._get_cache_dir
+_get_legacy_cache_path = _index_manager._get_legacy_cache_path
+_index_key = _index_manager._index_key
 _index_feature = _index_manager._index_feature
+_to_columnar = _index_manager._to_columnar
 IndexManager = _index_manager.IndexManager
 
 
@@ -185,21 +193,69 @@ class TestIndexFeature(unittest.TestCase):
 
 
 class TestGetCachePath(unittest.TestCase):
-    """Tests de _get_cache_path."""
+    """Tests des chemins de cache (dossier par projet, fichier par couche)."""
 
     def test_qgz_project(self):
-        result = _get_cache_path('/home/user/projet.qgz')
-        self.assertEqual(result, '/home/user/projet_magic_search_cache.gz')
+        result = _get_cache_dir('/home/user/projet.qgz')
+        self.assertEqual(result, '/home/user/projet_magic_search_cache')
 
     def test_qgs_project(self):
-        result = _get_cache_path('/home/user/mon_projet.qgs')
-        self.assertEqual(result, '/home/user/mon_projet_magic_search_cache.gz')
+        result = _get_cache_dir('/home/user/mon_projet.qgs')
+        self.assertEqual(result, '/home/user/mon_projet_magic_search_cache')
 
     def test_none_project(self):
-        self.assertIsNone(_get_cache_path(None))
+        self.assertIsNone(_get_cache_dir(None))
 
     def test_empty_project(self):
-        self.assertIsNone(_get_cache_path(''))
+        self.assertIsNone(_get_cache_dir(''))
+
+    def test_legacy_path(self):
+        result = _get_legacy_cache_path('/home/user/projet.qgz')
+        self.assertEqual(result, '/home/user/projet_magic_search_cache.gz')
+
+    def test_index_key_is_a_stable_hash(self):
+        key = _index_key('abc123', ['geom', 'angle'])
+        self.assertEqual(len(key), 32)
+        self.assertEqual(key, _index_key('abc123', ['geom', 'angle']))
+
+    def test_index_key_ignores_excluded_fields_order(self):
+        """Deux couches jumelles ne doivent pas rater la deduplication a cause
+        de l'ordre des exclusions."""
+        self.assertEqual(_index_key('abc123', ['b', 'a']),
+                         _index_key('abc123', ['a', 'b']))
+
+    def test_index_key_differs_per_fingerprint(self):
+        self.assertNotEqual(_index_key('abc123', []), _index_key('def456', []))
+
+    def test_index_key_differs_per_exclusions(self):
+        """Changer les champs exclus doit invalider le cache."""
+        self.assertNotEqual(_index_key('abc123', []), _index_key('abc123', ['nom']))
+
+    def test_same_source_gives_same_key(self):
+        """Coeur de la deduplication : deux couches sur la meme source, avec le
+        meme nombre d'entites et les memes champs, partagent leur index meme si
+        elles portent des noms differents dans le projet."""
+        def mock_layer(source, count, field_names):
+            class MockField:
+                def __init__(self, name):
+                    self._name = name
+                def name(self):
+                    return self._name
+            class MockLayer:
+                pass
+            layer = MockLayer()
+            layer.source = lambda: source
+            layer.featureCount = lambda: count
+            layer.fields = lambda: [MockField(n) for n in field_names]
+            return layer
+
+        appareil = mock_layer('pg:table=appareil', 1200, ['id', 'nom'])
+        copie = mock_layer('pg:table=appareil', 1200, ['id', 'nom'])
+        autre = mock_layer('pg:table=parcelles', 1200, ['id', 'nom'])
+        self.assertEqual(_index_key(_layer_fingerprint(appareil), []),
+                         _index_key(_layer_fingerprint(copie), []))
+        self.assertNotEqual(_index_key(_layer_fingerprint(appareil), []),
+                            _index_key(_layer_fingerprint(autre), []))
 
 
 class TestIndexSearch(unittest.TestCase):
@@ -210,8 +266,8 @@ class TestIndexSearch(unittest.TestCase):
         mgr._index = {
             'layer_1': {
                 'name': 'Communes',
-                'fingerprint': 'abc123',
-                'fields': {
+                'key': 'abc123',
+                'fields': _to_columnar({
                     'nom': {
                         normalize_text('Vichy'): {
                             'original': 'Vichy',
@@ -236,10 +292,30 @@ class TestIndexSearch(unittest.TestCase):
                             'fids': [2]
                         },
                     }
-                }
+                })
             }
         }
         return mgr
+
+    def test_search_returns_fids_as_list(self):
+        """Les fid sont stockes dans un array C mais doivent ressortir en
+        liste : geo_actions les passe a selectByIds() et en prend len()."""
+        mgr = self._make_index()
+        results = mgr.search('03200')
+        fids = results[0]['matches'][0]['fids']
+        self.assertIsInstance(fids, list)
+        self.assertEqual(fids, [1, 3])
+
+    def test_search_ranks_exact_before_prefix(self):
+        mgr = self._make_index()
+        results = mgr.search('cusset')
+        self.assertEqual(results[0]['best_match_score'], 0)
+
+    def test_search_no_match_across_values(self):
+        """Les valeurs sont concatenees dans une seule chaine : une requete ne
+        doit jamais matcher a cheval sur deux valeurs voisines."""
+        mgr = self._make_index()
+        self.assertEqual(mgr.search('vichycusset'), [])
 
     def test_search_exact(self):
         mgr = self._make_index()

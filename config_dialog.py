@@ -5,13 +5,14 @@ i18n 5 langues + About dialog.
 """
 
 import os
+import html
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QPushButton,
     QGroupBox, QScrollArea, QWidget, QSpinBox, QComboBox, QFrame,
     QTreeWidget, QTreeWidgetItem, QLineEdit
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal
-from qgis.PyQt.QtGui import QFont, QPixmap
+from qgis.PyQt.QtCore import Qt, QUrl, pyqtSignal
+from qgis.PyQt.QtGui import QFont, QPixmap, QIcon, QCursor, QDesktopServices
 from qgis.core import QgsProject, QgsVectorLayer
 
 from .i18n import tr
@@ -85,9 +86,36 @@ TR = {
         'es': "Tamano max del cache (MB)",
         'pt': "Tamanho max do cache (MB)",
         'de': "Max. Cache-Grosse (MB)"},
+    'all_types': {
+        'fr': "Indexer aussi les dates et les nombres a decimales",
+        'en': "Also index dates and decimal numbers",
+        'es': "Indexar tambien fechas y numeros decimales",
+        'pt': "Indexar tambem datas e numeros decimais",
+        'de': "Auch Datums- und Dezimalwerte indizieren"},
+    'all_types_tip': {
+        'fr': "Par defaut, les dates et les vraies decimales ne sont pas\n"
+              "indexees : on ne les recherche pas au clavier. Les colonnes\n"
+              "typees en decimal qui ne contiennent que des entiers (numero\n"
+              "de regard, de branchement...) restent indexees.",
+        'en': "By default dates and true decimals are not indexed: nobody\n"
+              "types them in a search box. Decimal-typed columns holding only\n"
+              "whole numbers are still indexed.",
+        'es': "Por defecto, las fechas y los decimales reales no se indexan.\n"
+              "Las columnas decimales con solo enteros si se indexan.",
+        'pt': "Por padrao, datas e decimais reais nao sao indexados.\n"
+              "Colunas decimais contendo apenas inteiros continuam indexadas.",
+        'de': "Datums- und echte Dezimalwerte werden standardmassig nicht\n"
+              "indiziert. Dezimalspalten mit ausschliesslich ganzen Zahlen\n"
+              "bleiben indiziert."},
+    'cache_open_tip': {
+        'fr': "Cliquer pour ouvrir le dossier du cache",
+        'en': "Click to open the cache folder",
+        'es': "Clic para abrir la carpeta de cache",
+        'pt': "Clique para abrir a pasta de cache",
+        'de': "Zum Offnen des Cache-Ordners klicken"},
     'cache_info': {
-        'fr': "Le cache est stocke a cote du fichier projet (.qgz) sous le nom\n"
-              "[projet]_magic_search_cache.gz\n"
+        'fr': "Le cache est stocke a cote du fichier projet (.qgz) dans le dossier\n"
+              "[projet]_magic_search_cache/ (un fichier par couche)\n"
               "Il accelere la recherche en evitant de reindexer les couches a chaque ouverture.",
         'en': "The cache is stored next to the project file (.qgz) as\n"
               "[project]_magic_search_cache.gz\n"
@@ -141,29 +169,131 @@ TR = {
 }
 
 
+class _BadgeLabel(QLabel):
+    """Badge shields.io cliquable, rendu a sa taille naturelle.
+
+    Les badges sont des PNG rasterises a 2x depuis https://img.shields.io et
+    stockes dans icon/ sous la forme `badge-<nom>@2x.png` ; ils sont affiches
+    a la moitie de leur taille, ce qui les garde nets aussi bien sur un ecran
+    standard que sur un ecran haute densite. Le SVG de shields.io n'est
+    volontairement pas utilise tel quel : QtSvg ne suit que SVG Tiny, et son
+    rendu du texte sort flou.
+
+    Pour ajouter ou modifier un badge, se reporter a la syntaxe et aux styles
+    officiels : https://github.com/badges/shields
+    Encodage de l'URL : espace = %20, barre verticale = %7C,
+    tiret litteral = --, plus = %2B.
+    Le badge "langues" annonce l'interface du plugin, traduite en
+    FR / EN / ES / PT / DE ; un badge "docs" ne couvrirait que le README.
+    """
+
+    RATIO = 2.0
+
+    def __init__(self, filename, url, parent=None):
+        super().__init__(parent)
+        self.url = url
+        path = os.path.join(os.path.dirname(__file__), 'icon', filename)
+        pix = QPixmap(path)
+        if pix.isNull():
+            self.hide()
+            return
+        pix.setDevicePixelRatio(self.RATIO)
+        self.setPixmap(pix)
+        self.setFixedSize(int(pix.width() / self.RATIO),
+                          int(pix.height() / self.RATIO))
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(url)
+
+    def mousePressEvent(self, event):
+        if self.url:
+            QDesktopServices.openUrl(QUrl(self.url))
+
+
 class AboutDialog(QDialog):
     _ABOUT_TR = {
         'title': {'fr': "A propos", 'en': "About", 'es': "Acerca de",
                   'pt': "Sobre", 'de': "Uber"},
         'close': {'fr': "Fermer", 'en': "Close", 'es': "Cerrar",
                   'pt': "Fechar", 'de': "Schliessen"},
+        'subtitle': {
+            'fr': "La barre de recherche universelle de QGIS",
+            'en': "The universal search bar for QGIS",
+            'es': "La barra de busqueda universal de QGIS",
+            'pt': "A barra de pesquisa universal do QGIS",
+            'de': "Die universelle Suchleiste fuer QGIS"},
+        'description': {
+            'fr': "Une seule barre pour tout retrouver dans QGIS : vous tapez, "
+                  "et le plugin interroge en meme temps le geocodeur d'adresses "
+                  "(BAN pour la France, OSM/Nominatim dans le monde entier) et "
+                  "tous les champs de toutes les couches vectorielles du projet. "
+                  "Adresse, numero de regard, parcelle ou coordonnees brutes "
+                  "(WGS84 ou Lambert 93) : le plugin reconnait ce que vous "
+                  "cherchez et vous y emmene. L'indexation se fait en tache de "
+                  "fond, sans bloquer QGIS, et le resultat est conserve dans un "
+                  "cache compresse pose a cote du fichier projet.",
+            'en': "One search bar to find anything in QGIS: as you type, the "
+                  "plugin queries at the same time the address geocoder (BAN for "
+                  "France, OSM/Nominatim worldwide) and every field of every "
+                  "vector layer in the project. An address, an asset number, a "
+                  "parcel or raw coordinates (WGS84 or Lambert 93): the plugin "
+                  "works out what you are looking for and takes you there. "
+                  "Indexing runs in the background without blocking QGIS, and is "
+                  "kept in a compressed cache stored next to the project file.",
+            'es': "Una sola barra para encontrarlo todo en QGIS: mientras escribe, "
+                  "el complemento consulta a la vez el geocodificador de "
+                  "direcciones (BAN en Francia, OSM/Nominatim en todo el mundo) y "
+                  "todos los campos de todas las capas vectoriales del proyecto. "
+                  "Una direccion, un numero de elemento, una parcela o coordenadas "
+                  "en bruto (WGS84 o Lambert 93): el complemento reconoce lo que "
+                  "busca y le lleva alli. La indexacion se realiza en segundo "
+                  "plano, sin bloquear QGIS, y se conserva en una cache comprimida "
+                  "junto al archivo de proyecto.",
+            'pt': "Uma unica barra para encontrar tudo no QGIS: enquanto escreve, "
+                  "o modulo consulta ao mesmo tempo o geocodificador de enderecos "
+                  "(BAN em Franca, OSM/Nominatim em todo o mundo) e todos os "
+                  "campos de todas as camadas vetoriais do projeto. Um endereco, "
+                  "um numero de elemento, um predio ou coordenadas em bruto "
+                  "(WGS84 ou Lambert 93): o modulo reconhece o que procura e "
+                  "leva-o ate la. A indexacao decorre em segundo plano, sem "
+                  "bloquear o QGIS, e e guardada numa cache comprimida junto ao "
+                  "ficheiro de projeto.",
+            'de': "Eine einzige Leiste, um in QGIS alles zu finden: waehrend Sie "
+                  "tippen, fragt die Erweiterung gleichzeitig den Adress-Geocoder "
+                  "(BAN fuer Frankreich, OSM/Nominatim weltweit) und alle Felder "
+                  "aller Vektorebenen des Projekts ab. Eine Adresse, eine "
+                  "Objektnummer, ein Flurstueck oder rohe Koordinaten (WGS84 oder "
+                  "Lambert 93): die Erweiterung erkennt, wonach Sie suchen, und "
+                  "bringt Sie dorthin. Die Indizierung laeuft im Hintergrund, ohne "
+                  "QGIS zu blockieren, und wird in einem komprimierten Cache neben "
+                  "der Projektdatei gespeichert."},
     }
+
+    README_URL = REPO_URL + '/blob/main/README.md'
 
     def __init__(self, lang='fr', parent=None):
         super().__init__(parent)
-        tr = lambda k: self._ABOUT_TR[k].get(lang, self._ABOUT_TR[k]['en'])
-        self.setWindowTitle(tr('title'))
-        self.setFixedWidth(420)
+        tr_ = lambda k: self._ABOUT_TR[k].get(lang, self._ABOUT_TR[k]['en'])
+        self.setWindowTitle(tr_('title') + " Magic Search")
+        self.setModal(True)
+        # Minimum et non largeur fixe : un badge un peu plus long qu'attendu
+        # elargit le dialogue au lieu d'etre rogne.
+        self.setMinimumWidth(460)
+
+        plugin_dir = os.path.dirname(__file__)
+        icon_path = os.path.join(plugin_dir, 'icon.png')
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setContentsMargins(28, 24, 28, 20)
+        layout.setSpacing(12)
 
         # Logo
-        icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
         if os.path.exists(icon_path):
             logo_label = QLabel()
             logo_label.setAlignment(Qt.AlignCenter)
-            pix = QPixmap(icon_path).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pix = QPixmap(icon_path).scaled(
+                80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             logo_label.setPixmap(pix)
             layout.addWidget(logo_label)
 
@@ -178,63 +308,65 @@ class AboutDialog(QDialog):
         layout.addWidget(title)
 
         # Sous-titre
-        subtitle = QLabel("Universal Search for QGIS")
+        subtitle = QLabel(tr_('subtitle'))
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet('color: #00a096; font-size: 11px;')
         layout.addWidget(subtitle)
 
-        layout.addSpacing(10)
+        # Badges, sur deux rangees : les quatre alignes bout a bout font
+        # 471 px, plus large que la zone utile du dialogue, et le dernier
+        # (« langues », le plus long) se retrouvait rogne.
+        badges = QVBoxLayout()
+        badges.setSpacing(5)
+        badges.addLayout(self._badge_row((
+            ('badge-qgis@2x.png', 'https://qgis.org'),
+            ('badge-version@2x.png', self.README_URL + '#-changelog'),
+            ('badge-license@2x.png', 'https://www.gnu.org/licenses/gpl-3.0.html'),
+        )))
+        badges.addLayout(self._badge_row((
+            ('badge-langue@2x.png', self.README_URL + '#-langues--languages'),
+        )))
+        layout.addLayout(badges)
 
-        # Version / auteur depuis metadata.txt
-        _meta_vals = {'version': '?', 'author': 'Yoan Laloux', 'email': ''}
-        _meta = os.path.join(os.path.dirname(__file__), 'metadata.txt')
-        if os.path.exists(_meta):
-            with open(_meta, encoding='utf-8') as _f:
-                for _line in _f:
-                    for _k in _meta_vals:
-                        if _line.startswith(_k + '='):
-                            _meta_vals[_k] = _line.split('=', 1)[1].strip()
+        layout.addWidget(self._sep())
 
-        lbl_version = QLabel("Version " + _meta_vals['version'])
-        lbl_version.setAlignment(Qt.AlignCenter)
-        layout.addWidget(lbl_version)
+        # Description traduite. metadata.txt alimente encore le gestionnaire
+        # d'extensions de QGIS, qui n'a pas de mecanisme de traduction.
+        about = QLabel(tr_('description'))
+        about.setWordWrap(True)
+        about.setAlignment(Qt.AlignJustify)
+        about.setStyleSheet('font-size: 11px;')
+        layout.addWidget(about)
 
-        _author = _meta_vals['author']
-        _email = _meta_vals['email']
+        layout.addWidget(self._sep())
 
-        # Auteur : lien vers le profil LinkedIn
-        lbl_author = QLabel(f'<a href="{AUTHOR_URL}">{_author}</a>')
-        lbl_author.setOpenExternalLinks(True)
-        lbl_author.setAlignment(Qt.AlignCenter)
-        layout.addWidget(lbl_author)
+        # Version et auteur depuis metadata.txt
+        meta = self._read_metadata(plugin_dir)
 
-        if _email:
-            lbl_email = QLabel(f'<a href="mailto:{_email}">{_email}</a>')
-            lbl_email.setOpenExternalLinks(True)
-            lbl_email.setAlignment(Qt.AlignCenter)
-            lbl_email.setStyleSheet('font-size: 10px;')
-            layout.addWidget(lbl_email)
-
-        # Licence
-        lbl_license = QLabel(
-            '<a href="https://www.gnu.org/licenses/gpl-3.0.html">'
-            'GNU General Public License v3.0</a>'
+        author = QLabel(
+            '<div style="line-height:150%">'
+            '<b>{author}</b><br>'
+            '<a href="{readme}#-changelog">Version {version}</a>'
+            '</div>'.format(author=html.escape(meta['author']),
+                            readme=self.README_URL,
+                            version=html.escape(meta['version']))
         )
-        lbl_license.setOpenExternalLinks(True)
-        lbl_license.setAlignment(Qt.AlignCenter)
-        layout.addWidget(lbl_license)
+        author.setOpenExternalLinks(True)
+        author.setAlignment(Qt.AlignCenter)
+        layout.addWidget(author)
 
-        # GitHub
-        lbl_github = QLabel(f'<a href="{REPO_URL}">GitHub</a>')
-        lbl_github.setOpenExternalLinks(True)
-        lbl_github.setAlignment(Qt.AlignCenter)
-        layout.addWidget(lbl_github)
+        # Badges auteur
+        layout.addLayout(self._badge_row((
+            ('badge-github@2x.png', REPO_URL),
+            ('badge-linkedin@2x.png', AUTHOR_URL),
+        ), spacing=8))
 
-        layout.addSpacing(10)
+        layout.addWidget(self._sep())
 
         # Bouton fermer
-        btn_close = QPushButton(tr('close'))
+        btn_close = QPushButton(tr_('close'))
         btn_close.setCursor(Qt.PointingHandCursor)
+        btn_close.setDefault(True)
         btn_close.setStyleSheet("""
             QPushButton {
                 background-color: #13235b; color: white;
@@ -243,8 +375,59 @@ class AboutDialog(QDialog):
             }
             QPushButton:hover { background-color: #1e3a7a; }
         """)
-        btn_close.clicked.connect(self.close)
+        btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close, alignment=Qt.AlignCenter)
+
+    @staticmethod
+    def _sep():
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        return sep
+
+    def _badge_row(self, items, spacing=6):
+        """Rangee de badges centree. `items` : suite de (fichier, url)."""
+        row = QHBoxLayout()
+        row.setSpacing(spacing)
+        row.addStretch()
+        for filename, url in items:
+            row.addWidget(_BadgeLabel(filename, url, self))
+        row.addStretch()
+        return row
+
+    @staticmethod
+    def _read_metadata(plugin_dir):
+        vals = {'version': '?', 'author': 'Yoan Laloux'}
+        path = os.path.join(plugin_dir, 'metadata.txt')
+        if os.path.exists(path):
+            try:
+                with open(path, encoding='utf-8') as f:
+                    for line in f:
+                        for key in vals:
+                            if line.startswith(key + '='):
+                                vals[key] = line.split('=', 1)[1].strip()
+            except OSError:
+                pass
+        return vals
+
+
+def _cache_usage(cache_dir):
+    """Taille totale (Mo) et nombre de couches du dossier de cache."""
+    if not os.path.isdir(cache_dir):
+        return 0.0, 0
+    total = 0
+    n_layers = 0
+    try:
+        for name in os.listdir(cache_dir):
+            full = os.path.join(cache_dir, name)
+            if not os.path.isfile(full):
+                continue
+            total += os.path.getsize(full)
+            if name.endswith('.idx'):
+                n_layers += 1
+    except OSError:
+        return 0.0, 0
+    return total / 1048576, n_layers
 
 
 class ConfigDialog(QDialog):
@@ -392,24 +575,45 @@ class ConfigDialog(QDialog):
 
         # Chemin cache
         project_path = QgsProject.instance().fileName()
+        self._cache_dir = None
         if project_path:
-            cache_file = os.path.splitext(project_path)[0] + '_magic_search_cache.gz'
-            cache_exists = os.path.exists(cache_file)
-            if cache_exists:
-                size_kb = os.path.getsize(cache_file) / 1024
-                path_text = f"{cache_file}  ({size_kb:.0f} Ko)"
+            cache_dir = os.path.splitext(project_path)[0] + '_magic_search_cache'
+            size_mb, n_layers = _cache_usage(cache_dir)
+            if n_layers:
+                # Le dossier existe : le chemin devient un lien qui l'ouvre
+                # dans l'explorateur de fichiers.
+                self._cache_dir = cache_dir
+                href = QUrl.fromLocalFile(cache_dir).toString()
+                path_text = (
+                    f'<a href="{html.escape(href, quote=True)}" '
+                    f'style="color: #2563eb; text-decoration: none;">'
+                    f'{html.escape(cache_dir)}</a>'
+                    f'  ({size_mb:.1f} Mo, {n_layers} couches)'
+                )
             else:
-                path_text = f"{cache_file}  {tr('cache_not_created', lang=self.lang)}"
+                path_text = html.escape(
+                    f"{cache_dir}  {tr('cache_not_created', lang=self.lang)}")
         else:
-            path_text = tr('cache_no_project', lang=self.lang)
+            path_text = html.escape(tr('cache_no_project', lang=self.lang))
         self._lbl_cache_path = QLabel(path_text)
+        self._lbl_cache_path.setTextFormat(Qt.RichText)
         self._lbl_cache_path.setWordWrap(True)
         self._lbl_cache_path.setStyleSheet(
             'color: #64748b; font-size: 9px; background: #f8fafc; '
             'padding: 4px; border-radius: 3px; border: 1px solid #e2e8f0;'
         )
-        self._lbl_cache_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._lbl_cache_path.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self._lbl_cache_path.setOpenExternalLinks(False)
+        self._lbl_cache_path.linkActivated.connect(self._open_cache_dir)
+        if self._cache_dir:
+            self._lbl_cache_path.setCursor(QCursor(Qt.PointingHandCursor))
+            self._lbl_cache_path.setToolTip(self.tr_('cache_open_tip'))
         cache_layout.addWidget(self._lbl_cache_path)
+
+        self._chk_all_types = QCheckBox(self.tr_('all_types'))
+        self._chk_all_types.setChecked(self._config.get('index_all_types', False))
+        self._chk_all_types.setToolTip(self.tr_('all_types_tip'))
+        cache_layout.addWidget(self._chk_all_types)
 
         # Taille max
         cache_row = QHBoxLayout()
@@ -473,6 +677,10 @@ class ConfigDialog(QDialog):
 
         main_layout.addLayout(btn_layout)
 
+    def _open_cache_dir(self, url):
+        """Ouvre le dossier de cache dans l'explorateur de fichiers."""
+        QDesktopServices.openUrl(QUrl(url))
+
     def tr_(self, key):
         return TR[key].get(self.lang, TR[key]['en'])
 
@@ -495,6 +703,10 @@ class ConfigDialog(QDialog):
         self._layers_group.setTitle(self.tr_('layers_group'))
         self._cache_group.setTitle(self.tr_('cache_group'))
         self._lbl_cache.setText(self.tr_('cache_max'))
+        self._chk_all_types.setText(self.tr_('all_types'))
+        self._chk_all_types.setToolTip(self.tr_('all_types_tip'))
+        if self._cache_dir:
+            self._lbl_cache_path.setToolTip(self.tr_('cache_open_tip'))
         self._btn_reindex.setText(self.tr_('reindex'))
         self._btn_cancel.setText(self.tr_('cancel'))
         self._btn_ok.setText(self.tr_('ok'))
@@ -537,6 +749,7 @@ class ConfigDialog(QDialog):
             'ui_style': self._combo_ui.currentData(),
             'geocoder': self._combo_geocoder.currentData(),
             'max_cache_mb': self._spin_cache.value(),
+            'index_all_types': self._chk_all_types.isChecked(),
             'opacity': self._slider_opacity.value(),
             'ban_postcode': self._input_postcode.text().strip(),
             'reverse_radius_m': self._spin_radius.value(),

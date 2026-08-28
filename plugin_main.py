@@ -7,14 +7,24 @@ import os
 import json
 from qgis.PyQt.QtWidgets import QAction, QShortcut
 from qgis.PyQt.QtGui import QIcon, QKeySequence
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QSettings, QTimer
 from qgis.core import QgsProject, QgsVectorLayer, QgsApplication, Qgis
 
 from . import i18n
 from .i18n import tr
 
 CONFIG_KEY = 'MagicSearch'
+SETTINGS_GROUP = 'MagicSearch'
 SUPPORTED_LANGS = i18n.LANGS
+
+# Preferences applicatives : memorisees globalement (QSettings), donc conservees
+# d'un projet a l'autre et d'une session QGIS a l'autre.
+# Les autres cles (layers, favorites) restent propres au projet.
+GLOBAL_KEYS = ('ui_style', 'lang', 'geocoder', 'ban_postcode',
+               'reverse_radius_m', 'opacity', 'max_cache_mb',
+               'index_all_types')
+INT_KEYS = ('reverse_radius_m', 'opacity', 'max_cache_mb')
+BOOL_KEYS = ('index_all_types',)
 
 
 class MagicSearch:
@@ -61,7 +71,10 @@ class MagicSearch:
         self.favorite_tool.point_picked.connect(self._on_favorite_point_picked)
 
         self._apply_config()
-        self.index_manager.start_indexing()
+        # Differe : initGui() doit rendre la main tout de suite (rechargement
+        # du plugin, demarrage de QGIS). L'indexation demarre au prochain tour
+        # de boucle d'evenements et se poursuit de maniere incrementale.
+        QTimer.singleShot(0, self.index_manager.start_indexing)
 
         icon_path = os.path.join(self.plugin_dir, 'icon.png')
         icon = QIcon(icon_path) if os.path.exists(icon_path) else QIcon()
@@ -369,7 +382,8 @@ class MagicSearch:
         if self.index_manager:
             self.index_manager.set_config(
                 self._config.get('layers', {}),
-                self._config.get('max_cache_mb', 50)
+                self._config.get('max_cache_mb', 50),
+                self._config.get('index_all_types', False)
             )
 
         opacity = self._config.get('opacity', 100)
@@ -392,7 +406,7 @@ class MagicSearch:
     def _force_reindex(self):
         if self.index_manager:
             self.index_manager.stop()
-            self.index_manager.start_indexing()
+            self.index_manager.start_indexing(force=True)
 
     def _on_layers_removed(self, layer_ids):
         if self.index_manager:
@@ -407,7 +421,7 @@ class MagicSearch:
         self._load_config()
         self._apply_config()
         if self.index_manager:
-            self.index_manager.start_indexing()
+            self.index_manager.start_indexing(force=True)
         self._build_ui()
         self._push_favorites()
         if self.action_toggle:
@@ -426,17 +440,52 @@ class MagicSearch:
             self.action_toggle.setChecked(False)
 
     def _save_config(self):
+        # Partie projet : couches exclues, favoris...
         project = QgsProject.instance()
-        config_json = json.dumps(self._config, ensure_ascii=False)
+        project_config = {k: v for k, v in self._config.items()
+                          if k not in GLOBAL_KEYS}
+        config_json = json.dumps(project_config, ensure_ascii=False)
         project.writeEntry(CONFIG_KEY, 'config', config_json)
+
+        # Partie globale : preferences memorisees hors projet.
+        settings = QSettings()
+        settings.beginGroup(SETTINGS_GROUP)
+        for key in GLOBAL_KEYS:
+            if key in self._config:
+                settings.setValue(key, self._config[key])
+        settings.endGroup()
 
     def _load_config(self):
         project = QgsProject.instance()
         config_json, ok = project.readEntry(CONFIG_KEY, 'config', '{}')
+        config = {}
         if ok and config_json:
             try:
-                self._config = json.loads(config_json)
+                config = json.loads(config_json)
             except Exception:
-                self._config = {}
-        else:
-            self._config = {}
+                config = {}
+        if not isinstance(config, dict):
+            config = {}
+
+        # Les preferences globales priment sur les valeurs heritees d'anciens
+        # projets (ou elles etaient stockees dans le .qgz).
+        settings = QSettings()
+        settings.beginGroup(SETTINGS_GROUP)
+        for key in GLOBAL_KEYS:
+            value = settings.value(key, None)
+            if value is None:
+                continue
+            if key in INT_KEYS:
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    continue
+            elif key in BOOL_KEYS:
+                # QSettings rend les booleens sous forme de chaine sur Windows
+                value = str(value).lower() in ('true', '1')
+            else:
+                value = str(value)
+            config[key] = value
+        settings.endGroup()
+
+        self._config = config

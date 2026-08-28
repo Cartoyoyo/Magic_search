@@ -2,17 +2,17 @@
 name=Magic Search
 qgisMinimumVersion=3.16
 qgisMaximumVersion=3.99
-description=FR: Barre de recherche universelle - geocodeur BAN/OSM + toutes les couches du projet
-    EN: Universal search bar - BAN/OSM geocoder + all project layers
-    ES: Barra de busqueda universal - geocodificador BAN/OSM + todas las capas del proyecto
-    PT: Barra de pesquisa universal - geocodificador BAN/OSM + todas as camadas do projeto
-    DE: Universelle Suchleiste - BAN/OSM-Geocoder + alle Projektebenen
+description=FR: Une seule barre pour tout retrouver dans QGIS : tapez une adresse, un numero de regard ou des coordonnees, le plugin cherche en meme temps dans le geocodeur BAN/OSM et dans tous les champs de toutes les couches du projet.
+    EN: One search bar to find anything in QGIS: type an address, an asset number or coordinates - the plugin searches the BAN/OSM geocoder and every field of every project layer at the same time.
+    ES: Una sola barra para encontrarlo todo en QGIS: escriba una direccion, un numero de elemento o unas coordenadas y el complemento busca a la vez en el geocodificador BAN/OSM y en todos los campos de todas las capas del proyecto.
+    PT: Uma unica barra para encontrar tudo no QGIS: escreva um endereco, um numero de elemento ou coordenadas e o modulo pesquisa ao mesmo tempo no geocodificador BAN/OSM e em todos os campos de todas as camadas do projeto.
+    DE: Eine einzige Leiste, um in QGIS alles zu finden: Adresse, Objektnummer oder Koordinaten eingeben - die Erweiterung sucht gleichzeitig im BAN/OSM-Geocoder und in allen Feldern aller Projektebenen.
 about=FR: Recherchez simultanement dans les adresses (BAN pour la France, OSM/Nominatim dans le monde entier) et dans tous les champs de toutes les couches vectorielles de votre projet QGIS. Deux styles d'interface au choix : barre flottante deplacable et redimensionnable posee sur le canevas, ou panneau ancrable Qt5. Les resultats sont groupes par source, avec surbrillance de la geometrie au survol et zoom au clic. Un bouton "?" active un outil de geocodage inverse : cliquez sur la carte pour afficher directement dans le champ de recherche l'adresse BAN la plus proche (dans un rayon de 25 m). L'indexation est incrementale et non bloquante, et le resultat est conserve dans un cache compresse stocke a cote du fichier projet, avec empreinte par couche pour ne reindexer que ce qui a change. Interface traduite en 5 langues (FR, EN, ES, PT, DE). Un menu "vue de rue" ouvre, au clic sur la carte, la vue Street View/Mapillary/Panoramax/Bing Streetside du point dans le navigateur. Auteur : Yoan Laloux - https://www.linkedin.com/in/ylaloux/
     EN: Search simultaneously in addresses (BAN for France, OSM/Nominatim worldwide) and in every field of every vector layer of your QGIS project. Two UI styles: a draggable and resizable floating bar over the map canvas, or a dockable Qt5 panel. Results are grouped by source, with geometry highlighting on hover and zoom on click. A "?" button activates a reverse geocoding tool: click on the map to show the nearest BAN address (within 25 m) directly in the search field. A "street view" menu opens, on map click, the Google Street View/Mapillary/Panoramax/Bing Streetside view of the point in the browser. Indexing is incremental and non-blocking, and is persisted in a compressed cache stored next to the project file, with a per-layer fingerprint so only changed layers are re-indexed. UI translated into 5 languages (FR, EN, ES, PT, DE). Author: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
     ES: Busque simultaneamente en direcciones (BAN en Francia, OSM/Nominatim en todo el mundo) y en todos los campos de todas las capas vectoriales de su proyecto QGIS. Dos estilos de interfaz: barra flotante o panel acoplable. Un boton "?" activa la geocodificacion inversa: clic en el mapa para mostrar la direccion BAN mas cercana (a menos de 25 m) en el campo de busqueda. Un menu "vista de calle" abre, al hacer clic en el mapa, la vista Google Street View/Mapillary/Panoramax/Bing Streetside del punto en el navegador. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
     PT: Pesquise simultaneamente em enderecos (BAN na Franca, OSM/Nominatim em todo o mundo) e em todos os campos de todas as camadas vetoriais do seu projeto QGIS. Dois estilos de interface: barra flutuante ou painel acoplavel. Um botao "?" ativa a geocodificacao inversa: clique no mapa para mostrar o endereco BAN mais proximo (a menos de 25 m) no campo de pesquisa. Um menu "vista de rua" abre, ao clicar no mapa, a vista Google Street View/Mapillary/Panoramax/Bing Streetside do ponto no navegador. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
     DE: Suchen Sie gleichzeitig in Adressen (BAN fur Frankreich, OSM/Nominatim weltweit) und in allen Feldern aller Vektorebenen Ihres QGIS-Projekts. Zwei Oberflachenstile: schwebende Leiste oder andockbares Panel. Eine Schaltflache "?" aktiviert die Rueckwaerts-Geokodierung: Klick auf die Karte zeigt die naechste BAN-Adresse (innerhalb von 25 m) direkt im Suchfeld. Ein "Strassenansicht"-Menue oeffnet beim Kartenklick die Google Street View/Mapillary/Panoramax/Bing-Streetside-Ansicht des Punkts im Browser. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
-version=1.4.0
+version=1.5.0
 author=Yoan Laloux
 email=y.laloux@vichy-communaute.fr
 homepage=https://github.com/Cartoyoyo/Magic_search
@@ -23,7 +23,19 @@ icon=icon.png
 tags=search,geocoding,ban,osm,nominatim,address,layers,universal,attribute,index
 category=Search
 hasProcessingProvider=no
-changelog=1.4.0
+changelog=1.5.0
+    - Recherche jusqu'a 25x plus rapide : l'index passe d'un dictionnaire Python a des colonnes compactes balayees en C (90-590 ms par frappe -> 3-24 ms sur un projet de 870 000 valeurs)
+    - Rechargement du plugin instantane : l'indexation ne demarre plus pendant initGui() et le cache est relu couche par couche, sans bloquer l'interface
+    - Deduplication : une meme table chargee plusieurs fois dans le projet (copies, couches d'etiquettes) n'est indexee, stockee et gardee en memoire qu'une seule fois
+    - Dates et nombres a decimales ne sont plus indexes par defaut ; une colonne typee decimale mais ne contenant que des entiers (numero de regard, diametre...) reste indexee, detectee au fil du parcours
+    - Nouvelle option "Indexer aussi les dates et les nombres a decimales" dans la configuration
+    - Nouveau format de cache : un dossier par projet, un fichier par index, conteneur binaire compresse en LZMA (-72% de disque, relecture deux fois plus rapide)
+    - Les preferences (style, langue, geocodeur, cache, opacite) sont memorisees globalement et ne sont plus perdues en changeant de projet
+    - Le chemin du cache est cliquable dans la configuration et ouvre le dossier
+    - Modifier les champs exclus invalide desormais le cache de la couche concernee
+    - Correction : une seconde demande d'indexation n'annule plus celle en cours et ne refait plus le travail deja effectue
+    - Le cache est reconstruit une fois a la premiere ouverture apres mise a jour
+    1.4.0
     - Recherche de coordonnees brutes (WGS84 decimal ou Lambert93) directement dans la barre, au meme titre que BAN/OSM/couches
     - Nouvelle entree "Copier les coordonnees" dans le menu vue de rue (WGS84 + Lambert93 dans le presse-papiers)
     - Rayon du geocodage inverse configurable (defaut 25 m) dans le dialogue de configuration

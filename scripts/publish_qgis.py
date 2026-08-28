@@ -19,6 +19,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 METADATA_PATH = os.path.join(REPO_ROOT, 'metadata.txt')
 EXCLUDE_DIRS = {'.git', '.github', '__pycache__', 'tests', 'scripts'}
 EXCLUDE_FILES = {'.gitignore'}
+# Documentation de developpement : inutile dans le plugin installe
+EXCLUDE_SUFFIXES = ('.pyc', '.zip', '.d2', '.svg')
 
 
 def read_metadata_version():
@@ -46,7 +48,7 @@ def build_zip(version):
         for root, dirs, files in os.walk(REPO_ROOT):
             dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
             for fname in files:
-                if fname in EXCLUDE_FILES or fname.endswith('.pyc') or fname.endswith('.zip'):
+                if fname in EXCLUDE_FILES or fname.endswith(EXCLUDE_SUFFIXES):
                     continue
                 full = os.path.join(root, fname)
                 rel = os.path.relpath(full, REPO_ROOT).replace(os.sep, '/')
