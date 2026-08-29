@@ -16,11 +16,12 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal, QPoint, QEvent, QRect
 from qgis.PyQt.QtGui import QColor, QCursor, QPainter, QPen, QBrush, QPixmap
 
-from .ui_common import StayOnTopEventFilter
-from .core import geo_actions
-from .core.street_view_tool import SERVICE_LABELS, COPY_COORDS
-from .core.coord_parser import parse_coordinates, to_lonlat as coord_to_lonlat
-from .i18n import tr
+from .ui_common import StayOnTopEventFilter, sync_button_style, sync_button_glyph
+from ..core.qt_compat import event_pos, event_global_pos
+from ..core import geo_actions
+from ..core.street_view_tool import SERVICE_LABELS, COPY_COORDS
+from ..core.coord_parser import parse_coordinates, to_lonlat as coord_to_lonlat
+from ..i18n import tr
 
 TAG = 'Magic Search'
 
@@ -95,7 +96,7 @@ class CollapsedButton(QWidget):
     def __init__(self, parent=None, opacity=100):
         super().__init__(parent)
         self.setFixedSize(COLLAPSED_SIZE, COLLAPSED_SIZE)
-        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._dragging = False
         self._press_pos = QPoint()
         self._opacity = opacity
@@ -104,7 +105,7 @@ class CollapsedButton(QWidget):
         shadow.setOffset(0, 4)
         self.setGraphicsEffect(shadow)
         
-        icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
+        icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'icon.png')
         self._pixmap = QPixmap(icon_path) if os.path.exists(icon_path) else None
 
     def set_opacity(self, opacity):
@@ -113,7 +114,7 @@ class CollapsedButton(QWidget):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(QPen(QColor(VC_NAVY), 2))
         alpha = int(255 * (self._opacity / 100.0))
         p.setBrush(QBrush(QColor(255, 255, 255, alpha)))
@@ -131,21 +132,21 @@ class CollapsedButton(QWidget):
         p.end()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._press_pos = event.globalPos()
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_pos = event_global_pos(event)
             self._dragging = False
 
     def mouseMoveEvent(self, event):
-        if event.buttons() & Qt.LeftButton:
-            delta = event.globalPos() - self._press_pos
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            delta = event_global_pos(event) - self._press_pos
             if not self._dragging and delta.manhattanLength() > DRAG_THRESHOLD:
                 self._dragging = True
-                self.drag_started.emit(event.globalPos())
+                self.drag_started.emit(event_global_pos(event))
             if self._dragging:
-                self.drag_moved.emit(event.globalPos())
+                self.drag_moved.emit(event_global_pos(event))
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             if self._dragging:
                 self._dragging = False
                 self.drag_finished.emit()
@@ -163,7 +164,7 @@ class ResultItem(QFrame):
     def __init__(self, data, font_size=11, parent=None, opacity=100):
         super().__init__(parent)
         self._data = data
-        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setMouseTracking(True)
         self._opacity = opacity
 
@@ -245,7 +246,7 @@ class ResultItem(QFrame):
             border-radius: 4px;
             border: none;
         """)
-        row.addWidget(tag, 0, Qt.AlignVCenter)
+        row.addWidget(tag, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def enterEvent(self, event):
         self.hovered.emit(self._data)
@@ -256,7 +257,7 @@ class ResultItem(QFrame):
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._data)
         super().mousePressEvent(event)
 
@@ -267,7 +268,7 @@ class ExpandItem(QFrame):
     def __init__(self, data, remaining, font_size=9, parent=None, opacity=100):
         super().__init__(parent)
         self._data = data
-        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         alpha = int(255 * (opacity / 100.0))
         self.setStyleSheet(f"""
             ExpandItem {{
@@ -284,7 +285,7 @@ class ExpandItem(QFrame):
         layout.addWidget(lbl)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._data)
         super().mousePressEvent(event)
 
@@ -466,17 +467,17 @@ class SearchIconWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(24, 24)
-        icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
+        icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'icon.png')
         self._pixmap = QPixmap(icon_path) if os.path.exists(icon_path) else None
         
     def paintEvent(self, event):
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self._pixmap and not self._pixmap.isNull():
             p.drawPixmap(self.rect(), self._pixmap)
         else:
             # Fallback loupe
-            p.setPen(QPen(QColor(COLOR_MUTED), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setPen(QPen(QColor(COLOR_MUTED), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
             p.drawEllipse(4, 4, 11, 11)
             p.drawLine(12, 12, 18, 18)
         p.end()
@@ -496,8 +497,8 @@ class MagicSearchWidget(QDialog):
 
     def __init__(self, iface, index_manager, ban_provider, osm_provider, layer_provider, parent=None, opacity=100):
         main_win = iface.mainWindow()
-        super().__init__(main_win, Qt.Tool | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        super().__init__(main_win, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
         self._opacity = opacity
         
@@ -530,7 +531,7 @@ class MagicSearchWidget(QDialog):
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(10, 10, 10, 10)
         self._main_layout.setSpacing(0)
-        self._main_layout.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        self._main_layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
 
         # ---- Cercle retracte ----
         self._collapsed_btn = CollapsedButton(self, opacity=self._opacity)
@@ -572,7 +573,7 @@ class MagicSearchWidget(QDialog):
 
         self._btn_clear = QPushButton('\u2715')
         self._btn_clear.setFixedSize(22, 22)
-        self._btn_clear.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_clear.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_clear.setToolTip(tr('tip_clear'))
         self._btn_clear.setStyleSheet(f"""
             QPushButton {{
@@ -590,7 +591,7 @@ class MagicSearchWidget(QDialog):
 
         self._btn_reverse = QPushButton('?')
         self._btn_reverse.setFixedSize(26, 26)
-        self._btn_reverse.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_reverse.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_reverse.setCheckable(True)
         self._btn_reverse.setToolTip(tr('tip_reverse_geocode'))
         self._update_reverse_style()
@@ -599,9 +600,9 @@ class MagicSearchWidget(QDialog):
 
         self._btn_street = QToolButton()
         self._btn_street.setText('◎')
-        self._btn_street.setPopupMode(QToolButton.InstantPopup)
+        self._btn_street.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._btn_street.setFixedSize(26, 26)
-        self._btn_street.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_street.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_street.setToolTip(tr('tip_street_view'))
         self._update_street_style()
         street_menu = QMenu(self._btn_street)
@@ -623,9 +624,9 @@ class MagicSearchWidget(QDialog):
         self._search_history = []
         self._btn_more = QToolButton()
         self._btn_more.setText('\u22ee')
-        self._btn_more.setPopupMode(QToolButton.InstantPopup)
+        self._btn_more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._btn_more.setFixedSize(26, 26)
-        self._btn_more.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_more.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_more.setToolTip(tr('tip_more'))
         self._update_more_style()
         self._more_menu = QMenu(self._btn_more)
@@ -636,7 +637,7 @@ class MagicSearchWidget(QDialog):
 
         self._btn_config = QPushButton('\u2699')
         self._btn_config.setFixedSize(26, 26)
-        self._btn_config.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_config.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_config.setToolTip(tr('tip_config'))
         self._btn_config.setStyleSheet(f"""
             QPushButton {{
@@ -649,9 +650,9 @@ class MagicSearchWidget(QDialog):
         bar_layout.addWidget(self._btn_config)
 
         # Bouton synchronisation
-        self._btn_sync = QPushButton('\u27F3')
+        self._btn_sync = QPushButton()
         self._btn_sync.setFixedSize(26, 26)
-        self._btn_sync.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_sync.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_sync.setToolTip(tr('tip_sync_never'))
         self._btn_sync.clicked.connect(self.sync_requested.emit)
         bar_layout.addWidget(self._btn_sync)
@@ -662,7 +663,7 @@ class MagicSearchWidget(QDialog):
 
         self._btn_collapse = QPushButton('\u25B6')
         self._btn_collapse.setFixedSize(26, 26)
-        self._btn_collapse.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_collapse.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_collapse.setToolTip(tr('tip_collapse'))
         self._btn_collapse.setStyleSheet(f"""
             QPushButton {{
@@ -683,8 +684,8 @@ class MagicSearchWidget(QDialog):
 
         # ---- Status indexation (sous la barre) ----
         self._status_label = QLabel(main_win)
-        self._status_label.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
-        self._status_label.setAttribute(Qt.WA_TranslucentBackground)
+        self._status_label.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowDoesNotAcceptFocus)
+        self._status_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._status_label.setStyleSheet(
             f'color: {VC_TURQUOISE}; font-size: 11px; padding: 2px 14px; background: transparent;'
         )
@@ -862,26 +863,18 @@ class MagicSearchWidget(QDialog):
     # Sync button
     # ========================================
 
-    _SYNC_COLORS = {
-        'never': '#dc2626',     # rouge
-        'syncing': '#f59e0b',   # orange
-        'complete': '#16a34a',  # vert
-    }
-
     def _update_sync_style(self, state):
-        """Met a jour la couleur du bouton sync selon l'etat."""
-        color = self._SYNC_COLORS.get(state, '#dc2626')
-        self._btn_sync.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: none;
-                font-size: 16px; color: {color}; border-radius: 13px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ background: #f1f5f9; }}
-        """)
+        """Met a jour l'aspect du bouton sync selon l'etat.
+
+        Rien n'etant indexe sans un clic sur ce bouton, les etats incomplets
+        (rouge 'never', orange 'partial') sont peints en pastille pleine pour
+        qu'ils sautent aux yeux ; l'etat complet reste discret.
+        """
+        self._btn_sync.setText(sync_button_glyph(state))
+        self._btn_sync.setStyleSheet(sync_button_style(state, 13))
         self._sync_state = state
         self._btn_sync.setToolTip(tr(f'tip_sync_{state}') if state in
-                                  ('never', 'syncing', 'complete') else '')
+                                  ('never', 'partial', 'syncing', 'complete') else '')
 
     def retranslate(self):
         """Rafraichit les libelles deja construits apres un changement de langue."""
@@ -917,7 +910,7 @@ class MagicSearchWidget(QDialog):
         self._collapsed_btn.hide()
         self.setMinimumSize(0, 0)
         self.setMaximumSize(16777215, 16777215)
-        self._main_layout.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        self._main_layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         self._bar.setFixedWidth(self._bar_w)
         self.setFixedWidth(self._bar_w + 20)
         self._bar.show()
@@ -994,7 +987,7 @@ class MagicSearchWidget(QDialog):
         return None
 
     def eventFilter(self, obj, event):
-        if obj == self._iface.mapCanvas() and event.type() in (QEvent.Resize, QEvent.Move):
+        if obj == self._iface.mapCanvas() and event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
             self._reposition()
             return False
 
@@ -1002,31 +995,31 @@ class MagicSearchWidget(QDialog):
             etype = event.type()
 
             # --- Cursor change on hover ---
-            if etype == QEvent.MouseMove and not self._bar_dragging and not self._resizing:
-                edge = self._bar_edge(event.pos().x())
+            if etype == QEvent.Type.MouseMove and not self._bar_dragging and not self._resizing:
+                edge = self._bar_edge(event_pos(event).x())
                 if edge:
-                    self._bar.setCursor(QCursor(Qt.SizeHorCursor))
+                    self._bar.setCursor(QCursor(Qt.CursorShape.SizeHorCursor))
                 else:
-                    self._bar.setCursor(QCursor(Qt.ArrowCursor))
+                    self._bar.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
 
             # --- Button press: start resize or drag ---
-            if etype == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-                edge = self._bar_edge(event.pos().x())
+            if etype == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                edge = self._bar_edge(event_pos(event).x())
                 if edge:
                     self._resizing = True
                     self._resize_side = edge
-                    self._resize_start_global_x = event.globalPos().x()
+                    self._resize_start_global_x = event_global_pos(event).x()
                     self._resize_start_w = self._bar_w
                     return True
                 else:
-                    self._bar_press_pos = event.globalPos()
+                    self._bar_press_pos = event_global_pos(event)
                     self._bar_dragging = False
                     return False
 
             # --- Mouse move: resize or drag ---
-            if etype == QEvent.MouseMove:
+            if etype == QEvent.Type.MouseMove:
                 if self._resizing:
-                    dx = event.globalPos().x() - self._resize_start_global_x
+                    dx = event_global_pos(event).x() - self._resize_start_global_x
                     if self._resize_side == 'right':
                         new_w = max(BAR_MIN_W, min(BAR_MAX_W, self._resize_start_w + dx))
                     else:  # left
@@ -1035,24 +1028,24 @@ class MagicSearchWidget(QDialog):
                     return True
 
                 if self._bar_press_pos is not None:
-                    delta = event.globalPos() - self._bar_press_pos
+                    delta = event_global_pos(event) - self._bar_press_pos
                     if not self._bar_dragging and delta.manhattanLength() > DRAG_THRESHOLD:
                         self._bar_dragging = True
                         self._drag_offset = self._bar_press_pos - self.mapToGlobal(QPoint(0, 0))
                     if self._bar_dragging:
                         canvas = self._iface.mapCanvas()
-                        global_pos = event.globalPos() - self._drag_offset
+                        global_pos = event_global_pos(event) - self._drag_offset
                         local_pos = canvas.mapFromGlobal(global_pos)
                         self._custom_pos = local_pos
                         self._clamp_position(local_pos)
                         return True
 
             # --- Button release ---
-            if etype == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            if etype == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
                 if self._resizing:
                     self._resizing = False
                     self._resize_side = None
-                    self._bar.setCursor(QCursor(Qt.ArrowCursor))
+                    self._bar.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
                     return True
                 self._bar_press_pos = None
                 if self._bar_dragging:

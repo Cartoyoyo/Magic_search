@@ -43,11 +43,17 @@ TR = {
 
     # ---- Bouton de synchronisation ----
     'tip_sync_never': {
-        'fr': "Synchronisation requise (jamais synchronise)",
-        'en': "Sync required (never synced)",
-        'es': "Sincronizacion necesaria (nunca sincronizado)",
-        'pt': "Sincronizacao necessaria (nunca sincronizado)",
-        'de': "Synchronisierung erforderlich (nie synchronisiert)"},
+        'fr': "Aucune couche indexee - cliquez pour synchroniser",
+        'en': "No layer indexed - click to sync",
+        'es': "Ninguna capa indexada - haga clic para sincronizar",
+        'pt': "Nenhuma camada indexada - clique para sincronizar",
+        'de': "Keine Ebene indiziert - zum Synchronisieren klicken"},
+    'tip_sync_partial': {
+        'fr': "Synchronisation incomplete - cliquez pour synchroniser",
+        'en': "Incomplete sync - click to sync",
+        'es': "Sincronizacion incompleta - haga clic para sincronizar",
+        'pt': "Sincronizacao incompleta - clique para sincronizar",
+        'de': "Unvollstandige Synchronisierung - zum Synchronisieren klicken"},
     'tip_sync_syncing': {
         'fr': "Synchronisation en cours...",
         'en': "Syncing...",

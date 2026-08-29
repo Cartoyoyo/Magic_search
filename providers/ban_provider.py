@@ -67,10 +67,10 @@ class BanProvider(QObject):
         if reply is None:
             return
 
-        if reply.error() != QNetworkReply.NoError:
+        if reply.error() != QNetworkReply.NetworkError.NoError:
             QgsMessageLog.logMessage(
                 f"BAN error: {reply.error()} - {reply.errorString()}",
-                TAG, Qgis.Warning
+                TAG, Qgis.MessageLevel.Warning
             )
             reply.deleteLater()
             self._reply = None
@@ -99,7 +99,7 @@ class BanProvider(QObject):
             self.results_ready.emit(results)
 
         except Exception as e:
-            QgsMessageLog.logMessage(f"BAN parse error: {e}", TAG, Qgis.Warning)
+            QgsMessageLog.logMessage(f"BAN parse error: {e}", TAG, Qgis.MessageLevel.Warning)
             self.results_ready.emit([])
 
         finally:
@@ -132,10 +132,10 @@ class BanReverseProvider(QObject):
         if reply is None:
             return
 
-        if reply.error() != QNetworkReply.NoError:
+        if reply.error() != QNetworkReply.NetworkError.NoError:
             QgsMessageLog.logMessage(
                 f"BAN reverse error: {reply.error()} - {reply.errorString()}",
-                TAG, Qgis.Warning
+                TAG, Qgis.MessageLevel.Warning
             )
             reply.deleteLater()
             self._reply = None
@@ -163,7 +163,7 @@ class BanReverseProvider(QObject):
                 })
 
         except Exception as e:
-            QgsMessageLog.logMessage(f"BAN reverse parse error: {e}", TAG, Qgis.Warning)
+            QgsMessageLog.logMessage(f"BAN reverse parse error: {e}", TAG, Qgis.MessageLevel.Warning)
             self.result_ready.emit({})
 
         finally:

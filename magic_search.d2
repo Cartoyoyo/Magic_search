@@ -3,8 +3,8 @@
 #         d2 --theme 200 --layout elk magic_search.d2 magic_search.svg
 
 title: |md
-  # Magic Search
-  Architecture du plugin QGIS
+  # Magic Search 2.0
+  Architecture du plugin QGIS - un seul code pour QGIS 3.16 a 4.x
 | {near: top-center}
 
 direction: right
@@ -37,7 +37,10 @@ plugin: plugin_main.py {
     -_build_ui()
     -_apply_config()
     -_open_config()
+    -_sync_now()
     -_force_reindex()
+    -_on_layers_added(layers)
+    -_on_layers_removed(ids)
     -_load_config()
     -_save_config()
   }
@@ -47,9 +50,17 @@ plugin: plugin_main.py {
     (globales), couches exclues et favoris
     dans le projet `.qgz`.
   |
+
+  note_sync: |md
+    **Rien ne s'indexe tout seul.**
+    Au demarrage, a l'ouverture d'un projet
+    ou a l'ajout d'une couche, le plugin se
+    contente de recalculer l'etat de l'index.
+    Seul le clic utilisateur declenche une passe.
+  |
 }
 
-ui: Interface {
+ui: ui/ {
   style.stroke-dash: 3
 
   MagicSearchWidget: {
@@ -63,7 +74,7 @@ ui: Interface {
 
   MagicSearchDockWidget: {
     shape: class
-    "panneau ancrable Qt5"
+    "panneau ancrable (style 'qt5')"
 
     +set_favorites(items)
     +show_reverse_address(label)
@@ -74,6 +85,14 @@ ui: Interface {
     shape: class
     +config_changed(dict)
     +reindex_requested()
+  }
+
+  ui_common: "ui/ui_common.py" {
+    shape: class
+    +StayOnTopEventFilter
+    +SYNC_STYLES: "etat -> fond, texte, bordure, glyphe"
+    +sync_button_style(state, radius): str
+    +sync_button_glyph(state): str
   }
 }
 
@@ -111,12 +130,18 @@ core: core/ {
     -_manifest: "layer_id -> {file, key, name}"
     -_pending: list
     -_queue: list
+    -_skipped: "couches sans champ indexable"
+    -_sync_state: "never | partial | syncing | complete"
 
-    +start_indexing(force)
+    +start_indexing(force, purge)
     +search(query, max_per_field): list
+    +refresh_sync_state(): str
+    +missing_layers(): list
+    +clear_index()
     +reindex_layer(layer_id)
     +remove_layer(layer_id)
     +stop()
+    +sync_state_changed(str)
     -_triage_next()
     -_process_next()
     -_attach(layer_id, name, key, fields)
@@ -168,6 +193,13 @@ core: core/ {
     +parse_coordinates(text)
     +to_lonlat(coord)
   }
+
+  qt_compat: "qt_compat (Qt5 / Qt6)" {
+    shape: class
+    +IS_QT6: bool
+    +event_pos(event): QPoint
+    +event_global_pos(event): QPoint
+  }
 }
 
 colonne: |md
@@ -185,6 +217,44 @@ colonne: |md
   et la relecture du cache un `array.frombytes()`.
 |
 
+etats: |md
+  ### Etat de synchronisation
+
+  L'indexation etant manuelle, le bouton de la barre
+  porte a lui seul l'etat de l'index. `refresh_sync_state()`
+  compare les couches indexables du projet a `_index` :
+
+  - **rouge** `never` — rien d'indexe, pastille pleine + glyphe d'alerte
+  - **orange** `partial` — index incomplet (couche ajoutee, passe
+    interrompue, exclusion levee), pastille pleine
+  - **ambre** `syncing` — passe en cours
+  - **vert** `complete` — tout est a jour, affichage discret
+
+  Les couches examinees mais sans champ indexable sont retenues
+  dans `_skipped` : sans cela elles resteraient comptees comme
+  manquantes et le bouton ne repasserait jamais au vert.
+|
+
+portage: |md
+  ### QGIS 3 et QGIS 4 dans le meme code
+
+  QGIS 4 est bati sur Qt 6, ou deux choses changent :
+
+  - les enums ne sont plus exposees a plat sur la classe
+    (`Qt.CursorShape.ArrowCursor`, `QNetworkReply.NetworkError.NoError`,
+    `QgsRubberBand.IconType.ICON_CIRCLE`) - le plugin n'ecrit plus
+    que la forme scopee, valable sous Qt 5 comme sous Qt 6 ;
+  - les evenements souris exposent `position()` / `globalPosition()`
+    (QPointF) la ou Qt 5 offrait `pos()` / `globalPos()` (QPoint).
+
+  Le second point est le seul qui demande du code : `core/qt_compat.py`
+  interroge l'evenement au lieu de tester la version de Qt, et tout le
+  reste du plugin (barre flottante, outils carte) passe par lui.
+
+  `QAction` / `QShortcut` migrent de `QtWidgets` vers `QtGui` :
+  `plugin_main.py` tente l'import Qt 6 puis retombe sur Qt 5.
+|
+
 i18n: i18n.py {
   shape: class
   +tr(key, lang, **kwargs)
@@ -198,7 +268,8 @@ entry.classFactory -> plugin.MagicSearch: instancie
 plugin.MagicSearch -> ui.MagicSearchWidget: "style = maps"
 plugin.MagicSearch -> ui.MagicSearchDockWidget: "style = qt5"
 plugin.MagicSearch -> ui.ConfigDialog: ouvre
-plugin.MagicSearch -> core.IndexManager: QTimer.singleShot(0)
+plugin.MagicSearch -> core.IndexManager: "refresh_sync_state() au demarrage"
+plugin.MagicSearch -> core.IndexManager: "start_indexing() sur clic utilisateur"
 plugin.MagicSearch -> core.outils
 
 ui.MagicSearchWidget -> providers.BanProvider: search()
@@ -208,6 +279,10 @@ ui.MagicSearchWidget -> core.coord_parser
 ui.MagicSearchWidget -> core.geo_actions: "zoom / surbrillance"
 ui.MagicSearchDockWidget -> providers.LayerProvider: search()
 ui.ConfigDialog -> plugin.MagicSearch: config_changed
+ui.MagicSearchWidget -> plugin.MagicSearch: sync_requested
+ui.MagicSearchDockWidget -> plugin.MagicSearch: sync_requested
+core.IndexManager -> ui.ui_common: "sync_state_changed -> pastille"
+ui.ui_common -> etats: peint
 
 providers.LayerProvider -> core.IndexManager: search()
 core.outils.ReverseGeocodeTool -> providers.BanReverseProvider
@@ -221,3 +296,7 @@ colonne -> core.cache: serialise
 
 ui -> i18n: tr()
 plugin -> i18n: set_lang()
+
+ui.MagicSearchWidget -> core.qt_compat: "deplacement / redimensionnement"
+core.outils -> core.qt_compat: "clic sur la carte"
+core.qt_compat -> portage: explique

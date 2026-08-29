@@ -84,10 +84,10 @@ class OsmProvider(QObject):
         if reply is None:
             return
 
-        if reply.error() != QNetworkReply.NoError:
+        if reply.error() != QNetworkReply.NetworkError.NoError:
             QgsMessageLog.logMessage(
                 f"OSM error: {reply.error()} - {reply.errorString()}",
-                TAG, Qgis.Warning
+                TAG, Qgis.MessageLevel.Warning
             )
             reply.deleteLater()
             self._reply = None
@@ -112,7 +112,7 @@ class OsmProvider(QObject):
             self.results_ready.emit(results)
 
         except Exception as e:
-            QgsMessageLog.logMessage(f"OSM parse error: {e}", TAG, Qgis.Warning)
+            QgsMessageLog.logMessage(f"OSM parse error: {e}", TAG, Qgis.MessageLevel.Warning)
             self.results_ready.emit([])
 
         finally:

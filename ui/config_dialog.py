@@ -15,7 +15,8 @@ from qgis.PyQt.QtCore import Qt, QUrl, pyqtSignal
 from qgis.PyQt.QtGui import QFont, QPixmap, QIcon, QCursor, QDesktopServices
 from qgis.core import QgsProject, QgsVectorLayer
 
-from .i18n import tr
+from ..i18n import tr
+from ..core import geo_actions
 
 AUTHOR_URL = 'https://www.linkedin.com/in/ylaloux/'
 REPO_URL = 'https://github.com/Cartoyoyo/Magic_search'
@@ -135,6 +136,38 @@ TR = {
     'about': {
         'fr': "A propos",   'en': "About",
         'es': "Acerca de",  'pt': "Sobre",     'de': "Uber"},
+    'zoom_scale': {
+        'fr': "Zoom sur un point",   'en': "Zoom on a point",
+        'es': "Zoom en un punto",    'pt': "Zoom num ponto",
+        'de': "Zoom auf einen Punkt"},
+    'zoom_scale_tip': {
+        'fr': "Echelle appliquee quand on clique sur un resultat ponctuel.\n"
+              "Les lignes et polygones restent cadres sur leur emprise.",
+        'en': "Scale applied when clicking a point result.\n"
+              "Lines and polygons are still framed on their extent.",
+        'es': "Escala aplicada al hacer clic en un resultado puntual.",
+        'pt': "Escala aplicada ao clicar num resultado pontual.",
+        'de': "Massstab beim Klick auf ein punktformiges Ergebnis."},
+    'all_layers': {
+        'fr': "Chercher aussi dans les couches masquees",
+        'en': "Also search hidden layers",
+        'es': "Buscar tambien en las capas ocultas",
+        'pt': "Pesquisar tambem nas camadas ocultas",
+        'de': "Auch in ausgeblendeten Layern suchen"},
+    'all_layers_tip': {
+        'fr': "Par defaut, la recherche ne repond que sur les couches\n"
+              "cochees dans le panneau des couches. Toutes les couches\n"
+              "restent indexees : cocher une couche la rend cherchable\n"
+              "aussitot, sans reindexation.",
+        'en': "By default, search only answers on layers checked in the\n"
+              "layers panel. Every layer stays indexed: ticking a layer\n"
+              "makes it searchable at once, with no reindexing.",
+        'es': "Por defecto la busqueda solo responde en las capas\n"
+              "marcadas. Todas las capas siguen indexadas.",
+        'pt': "Por defeito a pesquisa so responde nas camadas marcadas.\n"
+              "Todas as camadas continuam indexadas.",
+        'de': "Standardmassig durchsucht die Suche nur aktivierte Layer.\n"
+              "Alle Layer bleiben indiziert."},
     'reindex': {
         'fr': "Reindexer maintenant",
         'en': "Reindex now",
@@ -144,10 +177,13 @@ TR = {
     'ui_style_group': {
         'fr': "Style d'interface", 'en': "UI Style", 'es': "Estilo de interfaz",
         'pt': "Estilo de interface", 'de': "Stil der Benutzeroberflache"},
+    # Le libelle ne mentionne plus "Qt5" : sous QGIS 4 l'interface est
+    # construite avec Qt 6. La valeur stockee reste 'qt5' pour ne pas perdre
+    # la preference des utilisateurs venant des versions 1.x.
     'ui_style_qt5': {
-        'fr': "Panneau ancrable (Qt5)", 'en': "Dockable Panel (Qt5)",
-        'es': "Panel acoplable (Qt5)", 'pt': "Painel acoplavel (Qt5)",
-        'de': "Andockbares Panel (Qt5)"},
+        'fr': "Panneau ancrable", 'en': "Dockable Panel",
+        'es': "Panel acoplable", 'pt': "Painel acoplavel",
+        'de': "Andockbares Panel"},
     'ui_style_maps': {
         'fr': "Barre flottante (Maps)", 'en': "Floating Bar (Maps)",
         'es': "Barra flotante (Maps)", 'pt': "Barra flutuante (Maps)",
@@ -181,6 +217,11 @@ class _BadgeLabel(QLabel):
 
     Pour ajouter ou modifier un badge, se reporter a la syntaxe et aux styles
     officiels : https://github.com/badges/shields
+    Rasterisation a 2x (le PNG stocke fait donc 40 px de haut), en recuperant
+    le SVG shields.io puis en le photographiant dans un navigateur headless :
+        curl -o badge.svg "https://img.shields.io/badge/version-2.0.0-blue"
+        chrome --headless=new --force-device-scale-factor=2                --default-background-color=00000000 --window-size=<w>,20                --screenshot=badge.png page.html   # page.html : <img src=badge.svg>
+    <w> est la largeur annoncee par l'attribut width= du SVG.
     Encodage de l'URL : espace = %20, barre verticale = %7C,
     tiret litteral = --, plus = %2B.
     Le badge "langues" annonce l'interface du plugin, traduite en
@@ -192,7 +233,7 @@ class _BadgeLabel(QLabel):
     def __init__(self, filename, url, parent=None):
         super().__init__(parent)
         self.url = url
-        path = os.path.join(os.path.dirname(__file__), 'icon', filename)
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'icon', filename)
         pix = QPixmap(path)
         if pix.isNull():
             self.hide()
@@ -201,7 +242,7 @@ class _BadgeLabel(QLabel):
         self.setPixmap(pix)
         self.setFixedSize(int(pix.width() / self.RATIO),
                           int(pix.height() / self.RATIO))
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(url)
 
     def mousePressEvent(self, event):
@@ -279,7 +320,7 @@ class AboutDialog(QDialog):
         # elargit le dialogue au lieu d'etre rogne.
         self.setMinimumWidth(460)
 
-        plugin_dir = os.path.dirname(__file__)
+        plugin_dir = os.path.dirname(os.path.dirname(__file__))
         icon_path = os.path.join(plugin_dir, 'icon.png')
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -291,15 +332,15 @@ class AboutDialog(QDialog):
         # Logo
         if os.path.exists(icon_path):
             logo_label = QLabel()
-            logo_label.setAlignment(Qt.AlignCenter)
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             pix = QPixmap(icon_path).scaled(
-                80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                80, 80, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             logo_label.setPixmap(pix)
             layout.addWidget(logo_label)
 
         # Titre
         title = QLabel("Magic Search")
-        title.setAlignment(Qt.AlignCenter)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_font = QFont()
         title_font.setPointSize(16)
         title_font.setBold(True)
@@ -309,7 +350,7 @@ class AboutDialog(QDialog):
 
         # Sous-titre
         subtitle = QLabel(tr_('subtitle'))
-        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setStyleSheet('color: #00a096; font-size: 11px;')
         layout.addWidget(subtitle)
 
@@ -334,7 +375,7 @@ class AboutDialog(QDialog):
         # d'extensions de QGIS, qui n'a pas de mecanisme de traduction.
         about = QLabel(tr_('description'))
         about.setWordWrap(True)
-        about.setAlignment(Qt.AlignJustify)
+        about.setAlignment(Qt.AlignmentFlag.AlignJustify)
         about.setStyleSheet('font-size: 11px;')
         layout.addWidget(about)
 
@@ -352,7 +393,7 @@ class AboutDialog(QDialog):
                             version=html.escape(meta['version']))
         )
         author.setOpenExternalLinks(True)
-        author.setAlignment(Qt.AlignCenter)
+        author.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(author)
 
         # Badges auteur
@@ -365,7 +406,7 @@ class AboutDialog(QDialog):
 
         # Bouton fermer
         btn_close = QPushButton(tr_('close'))
-        btn_close.setCursor(Qt.PointingHandCursor)
+        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_close.setDefault(True)
         btn_close.setStyleSheet("""
             QPushButton {
@@ -376,13 +417,13 @@ class AboutDialog(QDialog):
             QPushButton:hover { background-color: #1e3a7a; }
         """)
         btn_close.clicked.connect(self.accept)
-        layout.addWidget(btn_close, alignment=Qt.AlignCenter)
+        layout.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignCenter)
 
     @staticmethod
     def _sep():
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFrameShadow(QFrame.Sunken)
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
         return sep
 
     def _badge_row(self, items, spacing=6):
@@ -462,7 +503,7 @@ class ConfigDialog(QDialog):
         top_bar.addStretch()
 
         btn_about = QPushButton(self.tr_('about'))
-        btn_about.setCursor(Qt.PointingHandCursor)
+        btn_about.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_about.setStyleSheet("""
             QPushButton {
                 background-color: #00a096; color: white;
@@ -485,7 +526,7 @@ class ConfigDialog(QDialog):
         ui_row = QHBoxLayout()
         ui_row.setSpacing(6)
         self._combo_ui = QComboBox()
-        self._combo_ui.addItem(self.tr_('ui_style_qt5'), 'qt5')
+        self._combo_ui.addItem(self.tr_('ui_style_qt5'), 'qt5')  # 'qt5' : identifiant historique
         self._combo_ui.addItem(self.tr_('ui_style_maps'), 'maps')
         current_style = self._config.get('ui_style', 'maps')
         idx = self._combo_ui.findData(current_style)
@@ -543,7 +584,7 @@ class ConfigDialog(QDialog):
         self._lbl_opacity = QLabel(self.tr_('opacity'))
         opacity_row.addWidget(self._lbl_opacity)
         from qgis.PyQt.QtWidgets import QSlider
-        self._slider_opacity = QSlider(Qt.Horizontal)
+        self._slider_opacity = QSlider(Qt.Orientation.Horizontal)
         self._slider_opacity.setMinimum(10)
         self._slider_opacity.setMaximum(100)
         self._slider_opacity.setValue(self._config.get('opacity', 100))
@@ -596,17 +637,17 @@ class ConfigDialog(QDialog):
         else:
             path_text = html.escape(tr('cache_no_project', lang=self.lang))
         self._lbl_cache_path = QLabel(path_text)
-        self._lbl_cache_path.setTextFormat(Qt.RichText)
+        self._lbl_cache_path.setTextFormat(Qt.TextFormat.RichText)
         self._lbl_cache_path.setWordWrap(True)
         self._lbl_cache_path.setStyleSheet(
             'color: #64748b; font-size: 9px; background: #f8fafc; '
             'padding: 4px; border-radius: 3px; border: 1px solid #e2e8f0;'
         )
-        self._lbl_cache_path.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self._lbl_cache_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         self._lbl_cache_path.setOpenExternalLinks(False)
         self._lbl_cache_path.linkActivated.connect(self._open_cache_dir)
         if self._cache_dir:
-            self._lbl_cache_path.setCursor(QCursor(Qt.PointingHandCursor))
+            self._lbl_cache_path.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             self._lbl_cache_path.setToolTip(self.tr_('cache_open_tip'))
         cache_layout.addWidget(self._lbl_cache_path)
 
@@ -614,6 +655,27 @@ class ConfigDialog(QDialog):
         self._chk_all_types.setChecked(self._config.get('index_all_types', False))
         self._chk_all_types.setToolTip(self.tr_('all_types_tip'))
         cache_layout.addWidget(self._chk_all_types)
+
+        self._chk_all_layers = QCheckBox(self.tr_('all_layers'))
+        self._chk_all_layers.setChecked(self._config.get('search_all_layers', False))
+        self._chk_all_layers.setToolTip(self.tr_('all_layers_tip'))
+        cache_layout.addWidget(self._chk_all_layers)
+
+        # Echelle de zoom sur un resultat ponctuel
+        zoom_row = QHBoxLayout()
+        self._lbl_zoom = QLabel(self.tr_('zoom_scale'))
+        self._lbl_zoom.setToolTip(self.tr_('zoom_scale_tip'))
+        zoom_row.addWidget(self._lbl_zoom)
+        self._combo_zoom = QComboBox()
+        for scale in geo_actions.POINT_SCALE_CHOICES:
+            self._combo_zoom.addItem('1:%d' % scale, scale)
+        current_zoom = self._config.get('zoom_scale', geo_actions.DEFAULT_POINT_SCALE)
+        zoom_idx = self._combo_zoom.findData(current_zoom)
+        self._combo_zoom.setCurrentIndex(zoom_idx if zoom_idx >= 0 else 0)
+        self._combo_zoom.setToolTip(self.tr_('zoom_scale_tip'))
+        zoom_row.addWidget(self._combo_zoom)
+        zoom_row.addStretch()
+        cache_layout.addLayout(zoom_row)
 
         # Taille max
         cache_row = QHBoxLayout()
@@ -635,7 +697,7 @@ class ConfigDialog(QDialog):
         btn_layout.setSpacing(6)
 
         self._btn_reindex = QPushButton(self.tr_('reindex'))
-        self._btn_reindex.setCursor(Qt.PointingHandCursor)
+        self._btn_reindex.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_reindex.setStyleSheet("""
             QPushButton {
                 background-color: #f29400; color: white;
@@ -650,7 +712,7 @@ class ConfigDialog(QDialog):
         btn_layout.addStretch()
 
         self._btn_cancel = QPushButton(self.tr_('cancel'))
-        self._btn_cancel.setCursor(Qt.PointingHandCursor)
+        self._btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_cancel.setStyleSheet("""
             QPushButton {
                 background-color: #64748b; color: white;
@@ -663,7 +725,7 @@ class ConfigDialog(QDialog):
         btn_layout.addWidget(self._btn_cancel)
 
         self._btn_ok = QPushButton(self.tr_('ok'))
-        self._btn_ok.setCursor(Qt.PointingHandCursor)
+        self._btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_ok.setStyleSheet("""
             QPushButton {
                 background-color: #13235b; color: white;
@@ -705,6 +767,11 @@ class ConfigDialog(QDialog):
         self._lbl_cache.setText(self.tr_('cache_max'))
         self._chk_all_types.setText(self.tr_('all_types'))
         self._chk_all_types.setToolTip(self.tr_('all_types_tip'))
+        self._chk_all_layers.setText(self.tr_('all_layers'))
+        self._chk_all_layers.setToolTip(self.tr_('all_layers_tip'))
+        self._lbl_zoom.setText(self.tr_('zoom_scale'))
+        self._lbl_zoom.setToolTip(self.tr_('zoom_scale_tip'))
+        self._combo_zoom.setToolTip(self.tr_('zoom_scale_tip'))
         if self._cache_dir:
             self._lbl_cache_path.setToolTip(self.tr_('cache_open_tip'))
         self._btn_reindex.setText(self.tr_('reindex'))
@@ -726,15 +793,15 @@ class ConfigDialog(QDialog):
             excluded_fields = layer_conf.get('excluded_fields', [])
 
             layer_item = QTreeWidgetItem([layer.name()])
-            layer_item.setCheckState(0, Qt.Unchecked if excluded else Qt.Checked)
-            layer_item.setData(0, Qt.UserRole, layer_id)
+            layer_item.setCheckState(0, Qt.CheckState.Unchecked if excluded else Qt.CheckState.Checked)
+            layer_item.setData(0, Qt.ItemDataRole.UserRole, layer_id)
 
             field_items = []
             for field in layer.fields():
                 field_item = QTreeWidgetItem([field.name()])
                 is_excluded = field.name() in excluded_fields
-                field_item.setCheckState(0, Qt.Unchecked if is_excluded else Qt.Checked)
-                field_item.setData(0, Qt.UserRole, field.name())
+                field_item.setCheckState(0, Qt.CheckState.Unchecked if is_excluded else Qt.CheckState.Checked)
+                field_item.setData(0, Qt.ItemDataRole.UserRole, field.name())
                 layer_item.addChild(field_item)
                 field_items.append(field_item)
 
@@ -750,6 +817,8 @@ class ConfigDialog(QDialog):
             'geocoder': self._combo_geocoder.currentData(),
             'max_cache_mb': self._spin_cache.value(),
             'index_all_types': self._chk_all_types.isChecked(),
+            'search_all_layers': self._chk_all_layers.isChecked(),
+            'zoom_scale': self._combo_zoom.currentData(),
             'opacity': self._slider_opacity.value(),
             'ban_postcode': self._input_postcode.text().strip(),
             'reverse_radius_m': self._spin_radius.value(),
@@ -759,11 +828,11 @@ class ConfigDialog(QDialog):
 
         for layer_id, data in self._layer_items.items():
             layer_item = data['item']
-            excluded = layer_item.checkState(0) == Qt.Unchecked
+            excluded = layer_item.checkState(0) == Qt.CheckState.Unchecked
             excluded_fields = []
             for field_item in data['fields']:
-                if field_item.checkState(0) == Qt.Unchecked:
-                    excluded_fields.append(field_item.data(0, Qt.UserRole))
+                if field_item.checkState(0) == Qt.CheckState.Unchecked:
+                    excluded_fields.append(field_item.data(0, Qt.ItemDataRole.UserRole))
 
             config['layers'][layer_id] = {
                 'excluded': excluded,
@@ -785,4 +854,4 @@ class ConfigDialog(QDialog):
 
     def _show_about(self):
         dlg = AboutDialog(self.lang, self)
-        dlg.exec_()
+        dlg.exec()

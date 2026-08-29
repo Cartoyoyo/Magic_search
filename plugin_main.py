@@ -5,13 +5,17 @@ Barre de recherche flottante style Google Maps sur le canevas QGIS.
 
 import os
 import json
-from qgis.PyQt.QtWidgets import QAction, QShortcut
+try:  # Qt6 : QAction et QShortcut ont quitte QtWidgets pour QtGui
+    from qgis.PyQt.QtGui import QAction, QShortcut
+except ImportError:  # Qt5
+    from qgis.PyQt.QtWidgets import QAction, QShortcut
 from qgis.PyQt.QtGui import QIcon, QKeySequence
 from qgis.PyQt.QtCore import Qt, QSettings, QTimer
 from qgis.core import QgsProject, QgsVectorLayer, QgsApplication, Qgis
 
 from . import i18n
 from .i18n import tr
+from .core import geo_actions
 
 CONFIG_KEY = 'MagicSearch'
 SETTINGS_GROUP = 'MagicSearch'
@@ -22,9 +26,9 @@ SUPPORTED_LANGS = i18n.LANGS
 # Les autres cles (layers, favorites) restent propres au projet.
 GLOBAL_KEYS = ('ui_style', 'lang', 'geocoder', 'ban_postcode',
                'reverse_radius_m', 'opacity', 'max_cache_mb',
-               'index_all_types')
-INT_KEYS = ('reverse_radius_m', 'opacity', 'max_cache_mb')
-BOOL_KEYS = ('index_all_types',)
+               'index_all_types', 'search_all_layers', 'zoom_scale')
+INT_KEYS = ('reverse_radius_m', 'opacity', 'max_cache_mb', 'zoom_scale')
+BOOL_KEYS = ('index_all_types', 'search_all_layers')
 
 
 class MagicSearch:
@@ -71,10 +75,11 @@ class MagicSearch:
         self.favorite_tool.point_picked.connect(self._on_favorite_point_picked)
 
         self._apply_config()
-        # Differe : initGui() doit rendre la main tout de suite (rechargement
-        # du plugin, demarrage de QGIS). L'indexation demarre au prochain tour
-        # de boucle d'evenements et se poursuit de maniere incrementale.
-        QTimer.singleShot(0, self.index_manager.start_indexing)
+        # L'indexation ne demarre plus toute seule : elle est declenchee par
+        # l'utilisateur via le bouton de synchronisation de la barre de
+        # recherche (ou "Reindexer maintenant" dans la configuration). Au
+        # demarrage on se contente de dire ou en est l'index (jamais/partiel).
+        QTimer.singleShot(0, self.index_manager.refresh_sync_state)
 
         icon_path = os.path.join(self.plugin_dir, 'icon.png')
         icon = QIcon(icon_path) if os.path.exists(icon_path) else QIcon()
@@ -99,6 +104,7 @@ class MagicSearch:
         )
         self.shortcut.activated.connect(self._focus_search)
 
+        QgsProject.instance().layersAdded.connect(self._on_layers_added)
         QgsProject.instance().layersRemoved.connect(self._on_layers_removed)
         QgsProject.instance().readProject.connect(self._on_project_loaded)
         QgsProject.instance().cleared.connect(self._on_project_closed)
@@ -136,14 +142,14 @@ class MagicSearch:
             message = tr('msg_copy_coords_prompt')
         else:
             message = tr('msg_street_view_prompt', service=SERVICE_LABELS.get(service, service))
-        self.iface.messageBar().pushMessage('Magic Search', message, level=Qgis.Info, duration=4)
+        self.iface.messageBar().pushMessage('Magic Search', message, level=Qgis.MessageLevel.Info, duration=4)
 
     def _activate_add_favorite(self):
         """Active l'outil "ajouter un favori" : le prochain clic sur la carte
         declenche _on_favorite_point_picked."""
         self.iface.mapCanvas().setMapTool(self.favorite_tool)
         self.iface.messageBar().pushMessage(
-            'Magic Search', tr('msg_favorite_prompt'), level=Qgis.Info, duration=4
+            'Magic Search', tr('msg_favorite_prompt'), level=Qgis.MessageLevel.Info, duration=4
         )
 
     def _on_favorite_point_picked(self, lon, lat):
@@ -160,7 +166,7 @@ class MagicSearch:
         self._save_config()
         self._push_favorites()
         self.iface.messageBar().pushMessage(
-            'Magic Search', tr('msg_favorite_saved', label=label), level=Qgis.Success, duration=4
+            'Magic Search', tr('msg_favorite_saved', label=label), level=Qgis.MessageLevel.Success, duration=4
         )
 
     def _remove_favorite(self, index):
@@ -216,7 +222,7 @@ class MagicSearch:
             self.dock_widget = None
 
         if ui_style == 'maps':
-            from .search_widget import MagicSearchWidget
+            from .ui.search_widget import MagicSearchWidget
             if not self.search_widget:
                 self.search_widget = MagicSearchWidget(
                     self.iface,
@@ -227,7 +233,7 @@ class MagicSearch:
                     opacity=self._config.get('opacity', 100)
                 )
                 self.search_widget.config_requested.connect(self._open_config)
-                self.search_widget.sync_requested.connect(self._force_reindex)
+                self.search_widget.sync_requested.connect(self._sync_now)
                 self.search_widget.reverse_toggled.connect(self._toggle_reverse_tool)
                 self.search_widget.street_view_requested.connect(self._activate_street_view)
                 self.search_widget.add_favorite_requested.connect(self._activate_add_favorite)
@@ -236,7 +242,7 @@ class MagicSearch:
             self.search_widget.setVisible(self._visible)
 
         else:  # qt5
-            from .dock_widget import MagicSearchDockWidget
+            from .ui.dock_widget import MagicSearchDockWidget
             is_new = self.dock_widget is None
             if is_new:
                 self.dock_widget = MagicSearchDockWidget(
@@ -248,14 +254,14 @@ class MagicSearch:
                     self.iface.mainWindow()
                 )
                 self.dock_widget.config_requested.connect(self._open_config)
-                self.dock_widget.sync_requested.connect(self._force_reindex)
+                self.dock_widget.sync_requested.connect(self._sync_now)
                 self.dock_widget.reverse_toggled.connect(self._toggle_reverse_tool)
                 self.dock_widget.street_view_requested.connect(self._activate_street_view)
                 self.dock_widget.add_favorite_requested.connect(self._activate_add_favorite)
                 self.dock_widget.remove_favorite_requested.connect(self._remove_favorite)
                 self.dock_widget.set_favorites(self._config.get('favorites', []))
 
-            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
+            self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_widget)
             self.dock_widget.set_opacity(self._config.get('opacity', 100))
 
             if is_new:
@@ -274,6 +280,7 @@ class MagicSearch:
             self.index_manager.stop()
 
         try:
+            QgsProject.instance().layersAdded.disconnect(self._on_layers_added)
             QgsProject.instance().layersRemoved.disconnect(self._on_layers_removed)
             QgsProject.instance().readProject.disconnect(self._on_project_loaded)
             QgsProject.instance().cleared.disconnect(self._on_project_closed)
@@ -340,12 +347,12 @@ class MagicSearch:
                 self.action_toggle.setChecked(True)
 
     def _open_config(self):
-        from .config_dialog import ConfigDialog
+        from .ui.config_dialog import ConfigDialog
         dlg = ConfigDialog(self._config, lang=i18n.current_lang(),
                            parent=self.iface.mainWindow())
         dlg.config_changed.connect(self._on_config_changed)
         dlg.reindex_requested.connect(self._force_reindex)
-        dlg.exec_()
+        dlg.exec()
 
     def _detect_qgis_lang(self):
         """Deduit une langue supportee a partir de la locale QGIS (sinon 'en')."""
@@ -361,6 +368,10 @@ class MagicSearch:
         self._config = config
         self._save_config()
         self._apply_config()
+        # Les exclusions viennent peut-etre de changer : l'index peut etre
+        # devenu incomplet (couche reintegree) sans qu'on ait rien indexe.
+        if self.index_manager:
+            self.index_manager.refresh_sync_state()
         if old_ui != self._config.get('ui_style', 'maps'):
             self._build_ui()
 
@@ -383,8 +394,13 @@ class MagicSearch:
             self.index_manager.set_config(
                 self._config.get('layers', {}),
                 self._config.get('max_cache_mb', 50),
-                self._config.get('index_all_types', False)
+                self._config.get('index_all_types', False),
+                self._config.get('search_all_layers', False)
             )
+
+        geo_actions.set_point_scale(
+            self._config.get('zoom_scale', geo_actions.DEFAULT_POINT_SCALE)
+        )
 
         opacity = self._config.get('opacity', 100)
         if self.search_widget:
@@ -403,15 +419,38 @@ class MagicSearch:
         if self.dock_widget:
             self.dock_widget.retranslate()
 
+    def _sync_now(self):
+        """Bouton de synchronisation de la barre : lance (ou relance) une passe
+        d'indexation a la demande.
+
+        C'est desormais le seul point d'entree automatique : rien n'est indexe
+        tant que l'utilisateur n'a pas clique. Le cache disque est conserve,
+        donc une couche deja indexee et inchangee est simplement relue.
+        """
+        if not self.index_manager:
+            return
+        if self.index_manager.is_running():
+            # Deja en cours : un second clic ne doit pas tout reprendre a zero.
+            return
+        self.index_manager.start_indexing(force=True)
+
     def _force_reindex(self):
+        """Bouton "Reindexer maintenant" : purge du cache puis rescan complet."""
         if self.index_manager:
             self.index_manager.stop()
-            self.index_manager.start_indexing(force=True)
+            self.index_manager.start_indexing(force=True, purge=True)
+
+    def _on_layers_added(self, layers):
+        """Une couche ajoutee rend l'index incomplet : le bouton passe en
+        orange, mais rien n'est indexe sans clic de l'utilisateur."""
+        if self.index_manager:
+            self.index_manager.refresh_sync_state()
 
     def _on_layers_removed(self, layer_ids):
         if self.index_manager:
             for lid in layer_ids:
                 self.index_manager.remove_layer(lid)
+            self.index_manager.refresh_sync_state()
 
     def _on_project_loaded(self, doc=None):
         """Nouveau projet ouvert : recharger la config et reconstruire l'UI.
@@ -421,7 +460,10 @@ class MagicSearch:
         self._load_config()
         self._apply_config()
         if self.index_manager:
-            self.index_manager.start_indexing(force=True)
+            # Nouveau projet = index a refaire, mais a la demande seulement :
+            # le bouton de synchronisation passe au rouge et attend le clic.
+            self.index_manager.clear_index()
+            self.index_manager.refresh_sync_state()
         self._build_ui()
         self._push_favorites()
         if self.action_toggle:
@@ -430,7 +472,8 @@ class MagicSearch:
     def _on_project_closed(self):
         """Projet fermé : masquer l'UI et vider l'index."""
         if self.index_manager:
-            self.index_manager.stop()
+            self.index_manager.clear_index()
+            self.index_manager.refresh_sync_state()
         self._visible = False
         if self.search_widget:
             self.search_widget.hide()

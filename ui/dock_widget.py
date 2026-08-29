@@ -1,5 +1,7 @@
 """
-Dock Widget - Panneau ancrable Qt5 natif pour Magic Search.
+Dock Widget - Panneau ancrable natif (QDockWidget) pour Magic Search.
+Identifiant de style 'qt5' : nom historique conserve pour ne pas invalider
+les preferences enregistrees, l'interface suit la version de Qt de QGIS.
 Comportement dynamique : compact au repos, s'etend avec les resultats.
 """
 from qgis.PyQt.QtWidgets import (
@@ -10,11 +12,11 @@ from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QCursor, QPixmap
 import os
 
-from .ui_common import StayOnTopEventFilter
-from .core import geo_actions
-from .core.street_view_tool import SERVICE_LABELS, COPY_COORDS
-from .core.coord_parser import parse_coordinates, to_lonlat as coord_to_lonlat
-from .i18n import tr
+from .ui_common import StayOnTopEventFilter, sync_button_style, sync_button_glyph
+from ..core import geo_actions
+from ..core.street_view_tool import SERVICE_LABELS, COPY_COORDS
+from ..core.coord_parser import parse_coordinates, to_lonlat as coord_to_lonlat
+from ..i18n import tr
 
 TAG = 'Magic Search'
 VC_NAVY = '#13235b'
@@ -41,7 +43,7 @@ class ResultItemDock(QFrame):
         self._data = data
         self._opacity = opacity
         self.setObjectName("ResultItemDock")
-        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setMouseTracking(True)
 
         source = data.get('source')
@@ -107,7 +109,7 @@ class ResultItemDock(QFrame):
         self._apply_style()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._data)
         super().mousePressEvent(event)
 
@@ -128,7 +130,7 @@ class ExpandItemDock(QFrame):
         self._data = data
         self._opacity = opacity
         self.setObjectName("ExpandItemDock")
-        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         layer_id = data.get('layer_id', '')
         _, self._tag_color = _color_for_layer(layer_id)
@@ -158,16 +160,9 @@ class ExpandItemDock(QFrame):
         self._apply_style()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._data)
         super().mousePressEvent(event)
-
-
-_SYNC_COLORS = {
-    'never': '#dc2626',     # rouge
-    'syncing': '#f59e0b',   # orange
-    'complete': '#16a34a',  # vert
-}
 
 
 class MagicSearchDockWidget(QDockWidget):
@@ -199,7 +194,7 @@ class MagicSearchDockWidget(QDockWidget):
         self._opacity = 100
         self._widgets = []
 
-        self.setAllowedAreas(Qt.NoDockWidgetArea)
+        self.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
         self.setFloating(True)
         self.setMinimumWidth(350)
         self.setMinimumHeight(70)
@@ -219,10 +214,10 @@ class MagicSearchDockWidget(QDockWidget):
         input_layout.setSpacing(4)
 
         # Logo icon
-        icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
+        icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'icon.png')
         if os.path.exists(icon_path):
             self._logo_label = QLabel()
-            pix = QPixmap(icon_path).scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pix = QPixmap(icon_path).scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             self._logo_label.setPixmap(pix)
             self._logo_label.setContentsMargins(4, 0, 0, 0)
             input_layout.addWidget(self._logo_label)
@@ -235,7 +230,7 @@ class MagicSearchDockWidget(QDockWidget):
 
         self._btn_clear = QPushButton('\u2715')
         self._btn_clear.setFixedSize(24, 24)
-        self._btn_clear.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_clear.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_clear.setToolTip(tr('tip_clear'))
         self._btn_clear.setStyleSheet(f"""
             QPushButton {{
@@ -251,7 +246,7 @@ class MagicSearchDockWidget(QDockWidget):
         # Bouton geocodage inverse (adresse BAN la plus proche au clic)
         self._btn_reverse = QPushButton('?')
         self._btn_reverse.setFixedSize(24, 24)
-        self._btn_reverse.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_reverse.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_reverse.setCheckable(True)
         self._btn_reverse.setToolTip(tr('tip_reverse_geocode'))
         self._update_reverse_style()
@@ -261,9 +256,9 @@ class MagicSearchDockWidget(QDockWidget):
         # Bouton vue de rue (menu deroulant : Google / Mapillary / Panoramax / Bing)
         self._btn_street = QToolButton()
         self._btn_street.setText('◎')
-        self._btn_street.setPopupMode(QToolButton.InstantPopup)
+        self._btn_street.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._btn_street.setFixedSize(24, 24)
-        self._btn_street.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_street.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_street.setToolTip(tr('tip_street_view'))
         self._update_street_style()
         street_menu = QMenu(self._btn_street)
@@ -287,9 +282,9 @@ class MagicSearchDockWidget(QDockWidget):
         self._search_history = []
         self._btn_more = QToolButton()
         self._btn_more.setText('⋮')
-        self._btn_more.setPopupMode(QToolButton.InstantPopup)
+        self._btn_more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._btn_more.setFixedSize(24, 24)
-        self._btn_more.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_more.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_more.setToolTip(tr('tip_more'))
         self._update_more_style()
         self._more_menu = QMenu(self._btn_more)
@@ -298,9 +293,9 @@ class MagicSearchDockWidget(QDockWidget):
         input_layout.addWidget(self._btn_more)
 
         # Bouton synchronisation
-        self._btn_sync = QPushButton('\u27F3')
+        self._btn_sync = QPushButton()
         self._btn_sync.setFixedSize(24, 24)
-        self._btn_sync.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_sync.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_sync.setToolTip(tr('tip_sync_never'))
         self._btn_sync.clicked.connect(self.sync_requested.emit)
         input_layout.addWidget(self._btn_sync)
@@ -311,7 +306,7 @@ class MagicSearchDockWidget(QDockWidget):
 
         self._btn_config = QPushButton('\u2699')
         self._btn_config.setFixedSize(24, 24)
-        self._btn_config.setCursor(QCursor(Qt.PointingHandCursor))
+        self._btn_config.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._btn_config.setToolTip(tr('tip_config'))
         self._btn_config.setStyleSheet(f"""
             QPushButton {{
@@ -757,19 +752,13 @@ class MagicSearchDockWidget(QDockWidget):
         self._rubber_band = geo_actions.clear_rubber(self._rubber_band)
 
     def _update_sync_style(self, state):
-        """Met a jour la couleur du bouton sync selon l'etat."""
-        color = _SYNC_COLORS.get(state, '#dc2626')
-        self._btn_sync.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: none;
-                font-size: 15px; color: {color}; border-radius: 12px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ background: #f1f5f9; }}
-        """)
+        """Met a jour l'aspect du bouton sync selon l'etat (cf. search_widget :
+        pastille pleine rouge/orange tant que l'index est incomplet)."""
+        self._btn_sync.setText(sync_button_glyph(state))
+        self._btn_sync.setStyleSheet(sync_button_style(state, 12))
         self._sync_state = state
         self._btn_sync.setToolTip(tr(f'tip_sync_{state}') if state in
-                                  ('never', 'syncing', 'complete') else '')
+                                  ('never', 'partial', 'syncing', 'complete') else '')
 
     def retranslate(self):
         """Rafraichit les libelles deja construits apres un changement de langue."""

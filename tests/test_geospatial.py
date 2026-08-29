@@ -29,14 +29,16 @@ def _setup_qgis_mocks():
     def fake_pyqtSignal(*args, **kwargs):
         return property(lambda self: None)
 
-    class FakeQVariant:
-        # Valeurs reelles de QVariant.Type, utilisees pour classer les champs
-        Int, Double, String, Date, Time, DateTime = 2, 6, 10, 14, 15, 16
+    class FakeQMetaType:
+        # Valeurs reelles de QMetaType.Type, utilisees pour classer les champs
+        class Type:
+            Int, Double, QString, QDate, QTime, QDateTime = 2, 6, 10, 14, 15, 16
 
     qtcore_mod.QTimer = FakeQTimer
     qtcore_mod.QObject = FakeQObject
     qtcore_mod.pyqtSignal = fake_pyqtSignal
-    qtcore_mod.QVariant = FakeQVariant
+    qtcore_mod.QMetaType = FakeQMetaType
+    qtcore_mod.QT_VERSION_STR = '5.15.2'
 
     # qgis.core
     core_mod = types.ModuleType('qgis.core')
@@ -51,8 +53,8 @@ def _setup_qgis_mocks():
         def logMessage(*args, **kwargs):
             pass
     class FakeQgis:
-        Info = 0
-        Warning = 1
+        class MessageLevel:
+            Info, Warning, Critical, Success = 0, 1, 2, 3
 
     core_mod.QgsProject = FakeQgsProject
     core_mod.QgsVectorLayer = FakeQgsVectorLayer
@@ -84,6 +86,10 @@ _index_key = _index_manager._index_key
 _index_feature = _index_manager._index_feature
 _to_columnar = _index_manager._to_columnar
 IndexManager = _index_manager.IndexManager
+
+_qt_compat = __import__(_PKG + '.core.qt_compat', fromlist=['*'])
+event_pos = _qt_compat.event_pos
+event_global_pos = _qt_compat.event_global_pos
 
 
 class TestNormalizeText(unittest.TestCase):
@@ -368,6 +374,61 @@ class TestIndexSearch(unittest.TestCase):
         results = mgr.search('03', max_per_field=1)
         for r in results:
             self.assertLessEqual(len(r['matches']), 1)
+
+
+class TestQtCompat(unittest.TestCase):
+    """Compatibilite Qt5 / Qt6 des accesseurs d'evenement souris.
+
+    Les deux familles d'evenements sont simulees plutot que testees dans QGIS :
+    sous Qt 6 seul `position()`/`globalPosition()` (QPointF) est garanti, sous
+    Qt 5 seul `pos()`/`globalPos()` (QPoint) existe. Le code du plugin ne doit
+    voir qu'une seule API.
+    """
+
+    class _Qt5Event:
+        """QMouseEvent Qt 5 : pos() et globalPos() renvoient un QPoint."""
+        def pos(self):
+            return ('QPoint', 10, 20)
+
+        def globalPos(self):
+            return ('QPoint', 110, 120)
+
+    class _PointF:
+        def __init__(self, x, y):
+            self._x, self._y = x, y
+
+        def toPoint(self):
+            return ('QPoint', int(self._x), int(self._y))
+
+    class _Qt6Event:
+        """QMouseEvent Qt 6 : position()/globalPosition() renvoient un QPointF.
+
+        pos()/globalPos() sont volontairement absents, comme dans un Qt compile
+        sans les API depreciees.
+        """
+        def position(self):
+            return TestQtCompat._PointF(10.4, 20.6)
+
+        def globalPosition(self):
+            return TestQtCompat._PointF(110.4, 120.6)
+
+    def test_qt5_local_position(self):
+        self.assertEqual(event_pos(self._Qt5Event()), ('QPoint', 10, 20))
+
+    def test_qt5_global_position(self):
+        self.assertEqual(event_global_pos(self._Qt5Event()), ('QPoint', 110, 120))
+
+    def test_qt6_local_position(self):
+        self.assertEqual(event_pos(self._Qt6Event()), ('QPoint', 10, 20))
+
+    def test_qt6_global_position(self):
+        self.assertEqual(event_global_pos(self._Qt6Event()), ('QPoint', 110, 120))
+
+    def test_qt6_event_has_no_qt5_accessors(self):
+        """Garde-fou : si l'evenement Qt 6 exposait encore pos(), le test Qt 6
+        passerait sans rien prouver."""
+        self.assertFalse(hasattr(self._Qt6Event(), 'pos'))
+        self.assertFalse(hasattr(self._Qt6Event(), 'globalPos'))
 
 
 if __name__ == '__main__':

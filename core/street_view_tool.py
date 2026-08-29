@@ -12,6 +12,8 @@ from qgis.PyQt.QtWidgets import QApplication
 from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject, Qgis
 from qgis.gui import QgsMapToolEmitPoint
 
+from .qt_compat import event_pos
+
 from ..i18n import tr
 
 COPY_COORDS = 'copy_coords'
@@ -47,7 +49,7 @@ class StreetViewTool(QgsMapToolEmitPoint):
         self._service = service
 
     def canvasReleaseEvent(self, event):
-        point = self.toMapCoordinates(event.pos())
+        point = self.toMapCoordinates(event_pos(event))
         canvas = self._iface.mapCanvas()
         crs_src = canvas.mapSettings().destinationCrs()
         project = QgsProject.instance()
@@ -66,7 +68,7 @@ class StreetViewTool(QgsMapToolEmitPoint):
             )
             QApplication.clipboard().setText(text)
             self._iface.messageBar().pushMessage(
-                'Magic Search', tr('msg_coords_copied'), level=Qgis.Success, duration=4
+                'Magic Search', tr('msg_coords_copied'), level=Qgis.MessageLevel.Success, duration=4
             )
         else:
             url_template = SERVICE_URLS.get(self._service, SERVICE_URLS['google'])

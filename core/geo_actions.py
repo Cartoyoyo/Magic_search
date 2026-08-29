@@ -13,6 +13,37 @@ from qgis.gui import QgsRubberBand
 VC_TURQUOISE = '#00a096'
 COLOR_HIGHLIGHT = '#ff00ff'
 
+# Echelles de zoom sur un resultat de couche.
+# Un point n'a pas d'emprise : sans echelle imposee, le canevas resterait ou
+# il est. On serre au 1:200 pour voir l'objet et son contexte immediat, la ou
+# lignes et polygones se contentent d'un plancher plus large.
+POINT_SCALE_CHOICES = (200, 500, 1000)
+DEFAULT_POINT_SCALE = 200
+MIN_SCALE = 1000
+
+# Echelle courante, pilotee par la configuration (set_point_scale).
+_point_scale = DEFAULT_POINT_SCALE
+
+
+def set_point_scale(scale):
+    """Fixe l'echelle de zoom sur un resultat ponctuel.
+
+    Une valeur hors des choix proposes est ignoree plutot que corrigee : elle
+    ne peut venir que d'une configuration ecrite a la main ou d'un ancien
+    projet, et un zoom aberrant est plus deroutant qu'un zoom inchange.
+    """
+    global _point_scale
+    try:
+        scale = int(scale)
+    except (TypeError, ValueError):
+        return
+    if scale in POINT_SCALE_CHOICES:
+        _point_scale = scale
+
+
+def point_scale():
+    return _point_scale
+
 LAYER_COLORS = [
     ('#eef2ff', '#3730a3'),  # indigo
     ('#fef3c7', '#92400e'),  # ambre
@@ -38,10 +69,23 @@ def color_for_layer(layer_id):
 
 def _point_geom_type():
     try:
-        return Qgis.GeometryType.Point
+        return Qgis.GeometryType.Point            # QGIS >= 3.30
     except AttributeError:
         from qgis.core import QgsWkbTypes
-        return QgsWkbTypes.PointGeometry
+        return QgsWkbTypes.GeometryType.PointGeometry
+
+
+def _circle_icon():
+    """Marqueur circulaire d'un QgsRubberBand.
+
+    Sous Qt 6 (QGIS 4) les enums ne sont plus exposees a plat sur la classe :
+    QgsRubberBand.ICON_CIRCLE n'existe que sous Qt 5, la forme scopee
+    QgsRubberBand.IconType.ICON_CIRCLE fonctionne sur les deux.
+    """
+    icon_type = getattr(QgsRubberBand, 'IconType', None)
+    if icon_type is not None:
+        return icon_type.ICON_CIRCLE
+    return QgsRubberBand.ICON_CIRCLE
 
 
 def transform_point(iface, lon, lat):
@@ -79,7 +123,7 @@ def make_point_rubber(canvas, point, color=VC_TURQUOISE):
     rb = QgsRubberBand(canvas, _point_geom_type())
     rb.setColor(QColor(color))
     rb.setWidth(3)
-    rb.setIcon(QgsRubberBand.ICON_CIRCLE)
+    rb.setIcon(_circle_icon())
     rb.setIconSize(15)
     rb.addPoint(point)
     return rb
@@ -109,12 +153,23 @@ def zoom_to_features(iface, layer_id, fids):
             combined.transform(transform)
         # Agrandir l'emprise x2 autour du centre : l'objet occupe ~50% de l'ecran
         # au lieu de le remplir entierement.
+        try:
+            is_point = combined.type() == _point_geom_type()
+        except Exception:
+            is_point = False
+        floor = _point_scale if is_point else MIN_SCALE
+
         bbox = combined.boundingBox()
-        bbox.scale(2.0)
-        canvas.setExtent(bbox)
-        if canvas.scale() < 1000:
+        if bbox.isEmpty():
+            # Point unique (ou objets confondus) : aucune emprise a cadrer.
             canvas.setCenter(combined.centroid().asPoint())
-            canvas.zoomScale(1000)
+            canvas.zoomScale(floor)
+        else:
+            bbox.scale(2.0)
+            canvas.setExtent(bbox)
+            if canvas.scale() < floor:
+                canvas.setCenter(combined.centroid().asPoint())
+                canvas.zoomScale(floor)
         canvas.refresh()
     layer.selectByIds(fids)
 
@@ -140,7 +195,11 @@ def make_features_rubber(iface, layer_id, fids, color=COLOR_HIGHLIGHT, max_featu
             geom = QgsGeometry(feat.geometry())
             if transform:
                 geom.transform(transform)
-            rb.addGeometry(geom, None)
+            # La geometrie est deja ramenee au CRS du canevas (transform
+            # ci-dessus) : on le redonne explicitement. L'autre surcharge,
+            # addGeometry(geom, layer), attend un QgsMapLayer et devient
+            # ambigue quand on lui passe None sous PyQt6.
+            rb.addGeometry(geom, crs_dst)
     return rb
 
 

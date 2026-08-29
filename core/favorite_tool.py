@@ -8,6 +8,8 @@ from qgis.PyQt.QtCore import pyqtSignal
 from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
 from qgis.gui import QgsMapToolEmitPoint
 
+from .qt_compat import event_pos
+
 
 class FavoriteTool(QgsMapToolEmitPoint):
     point_picked = pyqtSignal(float, float)  # lon, lat (WGS84)
@@ -18,7 +20,7 @@ class FavoriteTool(QgsMapToolEmitPoint):
         self._iface = iface
 
     def canvasReleaseEvent(self, event):
-        point = self.toMapCoordinates(event.pos())
+        point = self.toMapCoordinates(event_pos(event))
         canvas = self._iface.mapCanvas()
         crs_src = canvas.mapSettings().destinationCrs()
         crs_dst = QgsCoordinateReferenceSystem('EPSG:4326')

@@ -14,7 +14,7 @@ import array
 import struct
 import hashlib
 import unicodedata
-from qgis.PyQt.QtCore import QTimer, pyqtSignal, QObject, QVariant
+from qgis.PyQt.QtCore import QTimer, pyqtSignal, QObject, QMetaType
 from qgis.core import QgsProject, QgsVectorLayer, QgsMessageLog, Qgis
 
 from bisect import bisect_right as _bisect_right
@@ -124,8 +124,13 @@ def _key_file(key):
 
 # Types QGIS sans interet pour une recherche textuelle. Les dates sont
 # exclues d'office ; les reels sont mis "en observation" (cf. _index_feature).
-DATE_TYPES = (QVariant.Date, QVariant.DateTime, QVariant.Time)
-REAL_TYPES = (QVariant.Double,)
+# On compare des entiers : QgsField.type() renvoie un QVariant.Type sous
+# QGIS 3 et un QMetaType.Type sous QGIS 4, mais les deux portent les memes
+# valeurs numeriques.
+DATE_TYPES = frozenset((int(QMetaType.Type.QDate),
+                        int(QMetaType.Type.QDateTime),
+                        int(QMetaType.Type.QTime)))
+REAL_TYPES = frozenset((int(QMetaType.Type.Double),))
 
 
 def _classify_fields(layer, excluded_fields, index_all):
@@ -142,7 +147,7 @@ def _classify_fields(layer, excluded_fields, index_all):
         if name in excluded_fields:
             continue
         try:
-            ftype = f.type()
+            ftype = int(f.type())
         except Exception:
             ftype = None
         if not index_all and ftype in DATE_TYPES:
@@ -370,14 +375,20 @@ class IndexManager(QObject):
     """Gestionnaire principal de l'index avec traitement incremental par champ."""
 
     SYNC_NEVER = 'never'
+    SYNC_PARTIAL = 'partial'
     SYNC_SYNCING = 'syncing'
     SYNC_COMPLETE = 'complete'
+
+    # Defaut de classe : search() doit repondre meme sur une instance montee
+    # sans __init__ (c'est ce que font les tests unitaires).
+    _search_all_layers = False
+    _skipped = frozenset()
 
     indexing_started = pyqtSignal()
     indexing_progress = pyqtSignal(str)
     indexing_finished = pyqtSignal()
     layer_ready = pyqtSignal(str)
-    sync_state_changed = pyqtSignal(str)  # 'never', 'syncing', 'complete'
+    sync_state_changed = pyqtSignal(str)  # 'never', 'partial', 'syncing', 'complete'
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -386,6 +397,11 @@ class IndexManager(QObject):
         self._max_cache_mb = DEFAULT_MAX_CACHE_MB
         self._is_ready = False
         self._sync_state = self.SYNC_NEVER
+        # Couches examinees mais volontairement laissees hors de l'index
+        # (source illisible, aucun champ indexable). Sans cela elles
+        # compteraient eternellement comme "manquantes" et le bouton de
+        # synchronisation resterait orange apres une passe complete.
+        self._skipped = set()
 
         # File d'attente : liste de layer_id
         self._queue = []
@@ -421,19 +437,123 @@ class IndexManager(QObject):
             self._sync_state = state
             self.sync_state_changed.emit(state)
 
-    def set_config(self, layers_config, max_cache_mb=None, index_all_types=None):
+    def clear_index(self):
+        """Oublie l'index en memoire (changement de projet).
+
+        Les identifiants de couche appartiennent a un projet : garder l'index
+        du projet precedent n'a aucun sens. Le cache disque, lui, est conserve
+        (il est range par projet) : la prochaine synchronisation demandee par
+        l'utilisateur le relira au lieu de tout reparcourir.
+        """
+        self.stop()
+        self._index = {}
+        self._by_key = {}
+        self._keys = {}
+        self._skipped = set()
+        self._is_ready = False
+
+    def missing_layers(self):
+        """Couches indexables du projet qui ne sont pas (encore) dans l'index.
+
+        Test volontairement bon marche (type, validite, exclusion) : il est
+        appele a chaque changement de couche, il ne doit jamais interroger la
+        source de donnees.
+        """
+        project = QgsProject.instance()
+        return [
+            layer_id for layer_id, layer in project.mapLayers().items()
+            if self._is_indexable(layer_id, layer)
+            and layer_id not in self._index
+            and layer_id not in self._skipped
+        ]
+
+    def refresh_sync_state(self):
+        """Recalcule l'etat de synchronisation a partir du projet courant.
+
+        L'indexation ne demarrant plus toute seule, c'est cet etat qui dit a
+        l'utilisateur ce que vaut son index : rien du tout ('never'), une
+        partie seulement ('partial'), ou tout ('complete').
+        """
+        if self.is_running():
+            self._set_sync_state(self.SYNC_SYNCING)
+            return self._sync_state
+
+        missing = self.missing_layers()
+        if not self._index:
+            state = self.SYNC_NEVER if missing else self.SYNC_COMPLETE
+        elif missing:
+            state = self.SYNC_PARTIAL
+        else:
+            state = self.SYNC_COMPLETE
+        self._set_sync_state(state)
+        return state
+
+    def set_config(self, layers_config, max_cache_mb=None, index_all_types=None,
+                   search_all_layers=None):
         self._layers_config = layers_config
         if max_cache_mb is not None:
             self._max_cache_mb = max_cache_mb
         if index_all_types is not None:
             self._index_all_types = bool(index_all_types)
+        if search_all_layers is not None:
+            self._search_all_layers = bool(search_all_layers)
 
     def is_running(self):
         """Une passe d'indexation est-elle en cours ?"""
         return bool(self._pending or self._queue or self._current_iterator)
 
-    def start_indexing(self, force=False):
+    def _visible_layer_ids(self):
+        """Ids des couches cochees dans l'arbre des couches.
+
+        checkedLayers() suit l'etat reel de l'arbre : decocher un groupe
+        decoche ses enfants, donc une couche rangee dans un groupe masque
+        n'apparait pas ici. Retourne None si l'arbre est indisponible, ce qui
+        vaut "pas de filtre" plutot que "aucune couche".
+
+        Appele a chaque recherche : l'arbre est en memoire, le cout est
+        negligeable devant le balayage des colonnes, et le filtre suit donc
+        les cases cochees sans la moindre reindexation.
+        """
+        try:
+            root = QgsProject.instance().layerTreeRoot()
+            return {layer.id() for layer in root.checkedLayers() if layer}
+        except Exception:
+            return None
+
+    def _is_indexable(self, layer_id, layer):
+        if not isinstance(layer, QgsVectorLayer) or not layer.isValid():
+            return False
+        if self._layers_config.get(layer_id, {}).get('excluded', False):
+            return False
+        return True
+
+    def _purge_all(self):
+        """Efface le cache disque du projet et vide les index en memoire.
+
+        Sans cela, "Reindexer maintenant" se contente de relire ce qui existe
+        deja : _by_key est conserve d'un demarrage a l'autre et les fichiers
+        du dossier de cache sont reutilises des que l'empreinte concorde.
+        """
+        cache_dir = self._cache_dir()
+        if cache_dir and os.path.isdir(cache_dir):
+            self._clear_cache_dir(cache_dir)
+        self._drop_legacy_cache()
+        self._by_key = {}
+        self._index = {}
+        self._cache_bytes = 0
+        QgsMessageLog.logMessage(
+            f"{TAG}: reindexation complete demandee, cache efface.",
+            TAG, Qgis.MessageLevel.Info
+        )
+
+    def start_indexing(self, force=False, purge=False):
         """Lance l'indexation.
+
+        purge=True repart de zero : les fichiers de cache du projet sont
+        effacies et les index gardes en memoire sont jetes, de sorte que
+        chaque couche est reellement reparcourue. C'est ce que demande le
+        bouton "Reindexer maintenant" ; l'ouverture d'un projet, elle,
+        conserve le cache (purge=False).
 
         Le chargement du cache et la verification des empreintes se font eux
         aussi de maniere incrementale : start_indexing() rend la main
@@ -447,14 +567,17 @@ class IndexManager(QObject):
             # signal de projet redondant) faisait repartir de zero et jetait
             # la couche en cours de parcours.
             QgsMessageLog.logMessage(
-                f"{TAG}: indexation deja en cours, demande ignoree.", TAG, Qgis.Info
+                f"{TAG}: indexation deja en cours, demande ignoree.", TAG, Qgis.MessageLevel.Info
             )
             return
 
         self.stop()
+        if purge:
+            self._purge_all()
         self._is_ready = False
         self._manifest = None
         self._keys = {}
+        self._skipped = set()
         # _by_key est volontairement CONSERVE : une cle identifie un contenu
         # (source + entites + champs + config), jamais une couche. Ce qui est
         # deja en memoire reste donc valide apres un redemarrage force, et
@@ -469,10 +592,13 @@ class IndexManager(QObject):
             if lid not in all_layers:
                 del self._index[lid]
 
+        # Toutes les couches non exclues sont indexees, visibles ou non : la
+        # visibilite se filtre a la recherche (cf. search), ou elle est
+        # gratuite et suit l'arbre en temps reel. Indexer sur ce critere
+        # obligerait a tout reparcourir a chaque case cochee.
         self._pending = [
             layer_id for layer_id, layer in all_layers.items()
-            if isinstance(layer, QgsVectorLayer) and layer.isValid()
-            and not self._layers_config.get(layer_id, {}).get('excluded', False)
+            if self._is_indexable(layer_id, layer)
         ]
 
         if not self._pending:
@@ -572,6 +698,7 @@ class IndexManager(QObject):
             layer = project.mapLayer(layer_id)
 
             if not layer or not isinstance(layer, QgsVectorLayer) or not layer.isValid():
+                self._skipped.add(layer_id)
                 self._timer.start(TICK_MS)
                 return
 
@@ -590,6 +717,9 @@ class IndexManager(QObject):
                 layer, excluded_fields, self._index_all_types)
 
             if not self._current_fields:
+                # Aucun champ indexable : rien a stocker, mais la couche a bien
+                # ete traitee (elle ne doit pas rester comptee comme manquante).
+                self._skipped.add(layer_id)
                 self._timer.start(TICK_MS)
                 return
 
@@ -600,7 +730,7 @@ class IndexManager(QObject):
                 'key': key,
                 'fields': {}
             }
-            QgsMessageLog.logMessage(f"Magic Search: Debut indexation {layer.name()}", TAG, Qgis.Info)
+            QgsMessageLog.logMessage(f"Magic Search: Debut indexation {layer.name()}", TAG, Qgis.MessageLevel.Info)
 
         # Process BATCH
         done = False
@@ -615,7 +745,7 @@ class IndexManager(QObject):
                 done = True
                 break
             except Exception as e:
-                QgsMessageLog.logMessage(f"Erreur entité: {e}", TAG, Qgis.Warning)
+                QgsMessageLog.logMessage(f"Erreur entité: {e}", TAG, Qgis.MessageLevel.Warning)
                 count += 1
 
         # Champs reels demasques pendant ce lot : on cesse de les parcourir.
@@ -626,7 +756,7 @@ class IndexManager(QObject):
             QgsMessageLog.logMessage(
                 f"{TAG}: champs decimaux ignores dans "
                 f"{self._current_layer_data['name']}: {', '.join(sorted(dropped))}",
-                TAG, Qgis.Info
+                TAG, Qgis.MessageLevel.Info
             )
             dropped.clear()
 
@@ -651,7 +781,7 @@ class IndexManager(QObject):
                 }
                 self._write_manifest()
             self.layer_ready.emit(layer_id)
-            QgsMessageLog.logMessage(f"Magic Search: Fin indexation {self._current_layer_data['name']}", TAG, Qgis.Info)
+            QgsMessageLog.logMessage(f"Magic Search: Fin indexation {self._current_layer_data['name']}", TAG, Qgis.MessageLevel.Info)
             self._current_iterator = None
             self._current_layer_id = None
             self._current_layer_data = None
@@ -672,10 +802,10 @@ class IndexManager(QObject):
         if self._t0 is not None:
             QgsMessageLog.logMessage(
                 f"{TAG}: indexation terminee en {time.perf_counter() - self._t0:.2f}s",
-                TAG, Qgis.Info
+                TAG, Qgis.MessageLevel.Info
             )
             self._t0 = None
-        self._set_sync_state(self.SYNC_COMPLETE)
+        self.refresh_sync_state()
         self.indexing_finished.emit()
 
     def stop(self):
@@ -687,9 +817,8 @@ class IndexManager(QObject):
         self._current_iterator = None
         self._current_layer_id = None
         self._current_layer_data = None
-        # Si on stoppe sans index, on repasse en 'never'
-        if not self._index:
-            self._set_sync_state(self.SYNC_NEVER)
+        # Une passe interrompue laisse un index partiel : l'etat le dit.
+        self.refresh_sync_state()
 
     def search(self, query, max_per_field=5):
         """Recherche dans l'index. Retourne les resultats groupes,
@@ -707,7 +836,14 @@ class IndexManager(QObject):
             return []
         results = []
 
+        # Par defaut on ne repond que sur les couches cochees dans QGIS :
+        # c'est ce que l'utilisateur a sous les yeux. L'index, lui, reste
+        # complet, donc recocher une couche la rend cherchable aussitot.
+        visible_ids = None if self._search_all_layers else self._visible_layer_ids()
+
         for layer_id, layer_data in self._index.items():
+            if visible_ids is not None and layer_id not in visible_ids:
+                continue
             layer_name = layer_data['name']
             layer_score = _layer_name_score(layer_name, q)
             for field_name, col in layer_data['fields'].items():
@@ -742,8 +878,7 @@ class IndexManager(QObject):
         if not layer or not isinstance(layer, QgsVectorLayer) or not layer.isValid():
             return
 
-        config = self._layers_config.get(layer_id, {})
-        if config.get('excluded', False):
+        if not self._is_indexable(layer_id, layer):
             if layer_id in self._index:
                 del self._index[layer_id]
             return
@@ -757,6 +892,7 @@ class IndexManager(QObject):
             self._timer.start(TICK_MS)
 
     def remove_layer(self, layer_id):
+        self._skipped.discard(layer_id)
         if layer_id in self._index:
             del self._index[layer_id]
         if layer_id in self._queue:
@@ -809,13 +945,13 @@ class IndexManager(QObject):
             else:
                 QgsMessageLog.logMessage(
                     f"{TAG}: cache d'une version anterieure, reconstruction.",
-                    TAG, Qgis.Info
+                    TAG, Qgis.MessageLevel.Info
                 )
                 self._clear_cache_dir(cache_dir)
         except Exception as e:
             QgsMessageLog.logMessage(
                 f"{TAG}: manifeste de cache illisible ({e}), reconstruction.",
-                TAG, Qgis.Warning
+                TAG, Qgis.MessageLevel.Warning
             )
             self._clear_cache_dir(cache_dir)
 
@@ -836,7 +972,7 @@ class IndexManager(QObject):
             return {'name': name, 'fields': columns}
         except Exception as e:
             QgsMessageLog.logMessage(
-                f"{TAG}: erreur chargement cache: {e}", TAG, Qgis.Warning
+                f"{TAG}: erreur chargement cache: {e}", TAG, Qgis.MessageLevel.Warning
             )
             return None
 
@@ -866,7 +1002,7 @@ class IndexManager(QObject):
                     f"{TAG}: plafond de cache atteint "
                     f"({projected / 1048576:.1f} Mo > {self._max_cache_mb} Mo), "
                     f"index non mis en cache: {layer_data.get('name')}",
-                    TAG, Qgis.Warning
+                    TAG, Qgis.MessageLevel.Warning
                 )
                 return
 
@@ -876,7 +1012,7 @@ class IndexManager(QObject):
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                f"{TAG}: erreur sauvegarde cache: {e}", TAG, Qgis.Warning
+                f"{TAG}: erreur sauvegarde cache: {e}", TAG, Qgis.MessageLevel.Warning
             )
 
     def _write_manifest(self):
@@ -892,7 +1028,7 @@ class IndexManager(QObject):
                           f, ensure_ascii=False)
         except Exception as e:
             QgsMessageLog.logMessage(
-                f"{TAG}: erreur ecriture manifeste: {e}", TAG, Qgis.Warning
+                f"{TAG}: erreur ecriture manifeste: {e}", TAG, Qgis.MessageLevel.Warning
             )
 
     def _prune_cache(self):
@@ -920,7 +1056,7 @@ class IndexManager(QObject):
             self._write_manifest()
         except Exception as e:
             QgsMessageLog.logMessage(
-                f"{TAG}: erreur nettoyage cache: {e}", TAG, Qgis.Warning
+                f"{TAG}: erreur nettoyage cache: {e}", TAG, Qgis.MessageLevel.Warning
             )
 
     @staticmethod
@@ -932,7 +1068,7 @@ class IndexManager(QObject):
         try:
             os.remove(legacy)
             QgsMessageLog.logMessage(
-                f"{TAG}: ancien cache monolithique supprime.", TAG, Qgis.Info
+                f"{TAG}: ancien cache monolithique supprime.", TAG, Qgis.MessageLevel.Info
             )
         except Exception:
             pass

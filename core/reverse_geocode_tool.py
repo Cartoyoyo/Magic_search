@@ -12,6 +12,7 @@ from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsP
 from qgis.gui import QgsMapToolEmitPoint
 
 from . import geo_actions
+from .qt_compat import event_pos
 from ..i18n import tr
 
 DEFAULT_RADIUS_M = 25
@@ -34,7 +35,7 @@ class ReverseGeocodeTool(QgsMapToolEmitPoint):
         self._radius_m = radius_m if radius_m and radius_m > 0 else DEFAULT_RADIUS_M
 
     def canvasReleaseEvent(self, event):
-        point = self.toMapCoordinates(event.pos())
+        point = self.toMapCoordinates(event_pos(event))
         canvas = self._iface.mapCanvas()
         crs_src = canvas.mapSettings().destinationCrs()
         crs_dst = QgsCoordinateReferenceSystem('EPSG:4326')
