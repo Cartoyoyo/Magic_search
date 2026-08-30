@@ -82,12 +82,14 @@ def _rate(n, seconds):
 LOG_FILE = 'indexation.log'
 LOG_MAX_BYTES = 1024 * 1024   # au-dela, la passe suivante repart d'un fichier vide
 
-# Drapeau "sans geometrie" : enum non cadree jusqu'a QGIS 3.34, cadree a
-# partir de 3.36 et seule forme disponible sous QGIS 4.
+# Drapeau "sans geometrie" : Qgis.FeatureRequestFlag n'apparait qu'en QGIS 3.36,
+# QgsFeatureRequest.Flag existe depuis toujours et reste accessible sous Qt 6.
+# Les deux formes sont cadrees : la forme nue QgsFeatureRequest.NoGeometry est
+# signalee par le verificateur Qt6 du depot et disparait sous QGIS 4.
 try:
     NO_GEOMETRY = Qgis.FeatureRequestFlag.NoGeometry
 except AttributeError:
-    NO_GEOMETRY = QgsFeatureRequest.NoGeometry
+    NO_GEOMETRY = QgsFeatureRequest.Flag.NoGeometry
 
 
 def normalize_text(text):
