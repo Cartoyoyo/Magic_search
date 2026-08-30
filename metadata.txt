@@ -12,7 +12,7 @@ about=FR: Recherchez simultanement dans les adresses (BAN pour la France, OSM/No
     ES: Busque simultaneamente en direcciones (BAN en Francia, OSM/Nominatim en todo el mundo) y en todos los campos de todas las capas vectoriales de su proyecto QGIS. Dos estilos de interfaz: barra flotante o panel acoplable. Compatible con QGIS 3.16 hasta QGIS 4 (Qt 5 y Qt 6). Un boton "?" activa la geocodificacion inversa: clic en el mapa para mostrar la direccion BAN mas cercana (a menos de 25 m) en el campo de busqueda. Un menu "vista de calle" abre, al hacer clic en el mapa, la vista Google Street View/Mapillary/Panoramax/Bing Streetside del punto en el navegador. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
     PT: Pesquise simultaneamente em enderecos (BAN na Franca, OSM/Nominatim em todo o mundo) e em todos os campos de todas as camadas vetoriais do seu projeto QGIS. Dois estilos de interface: barra flutuante ou painel acoplavel. Compativel com QGIS 3.16 ate QGIS 4 (Qt 5 e Qt 6). Um botao "?" ativa a geocodificacao inversa: clique no mapa para mostrar o endereco BAN mais proximo (a menos de 25 m) no campo de pesquisa. Um menu "vista de rua" abre, ao clicar no mapa, a vista Google Street View/Mapillary/Panoramax/Bing Streetside do ponto no navegador. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
     DE: Suchen Sie gleichzeitig in Adressen (BAN fur Frankreich, OSM/Nominatim weltweit) und in allen Feldern aller Vektorebenen Ihres QGIS-Projekts. Zwei Oberflachenstile: schwebende Leiste oder andockbares Panel. Kompatibel mit QGIS 3.16 bis QGIS 4 (Qt 5 und Qt 6). Eine Schaltflache "?" aktiviert die Rueckwaerts-Geokodierung: Klick auf die Karte zeigt die naechste BAN-Adresse (innerhalb von 25 m) direkt im Suchfeld. Ein "Strassenansicht"-Menue oeffnet beim Kartenklick die Google Street View/Mapillary/Panoramax/Bing-Streetside-Ansicht des Punkts im Browser. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
-version=2.0.0
+version=2.1.0
 author=Yoan Laloux
 email=y.laloux@vichy-communaute.fr
 homepage=https://github.com/Cartoyoyo/Magic_search
@@ -23,7 +23,23 @@ icon=icon.png
 tags=search,geocoding,ban,osm,nominatim,address,layers,universal,attribute,index,qgis4,qt6
 category=Search
 hasProcessingProvider=no
-changelog=2.0.0
+changelog=2.1.0
+    - Indexation pilotee par un budget de temps : chaque tick travaille un
+      temps borne puis rend la main a l'interface, et la taille du lot s'ajuste
+      au debit observe au lieu d'etre fixe
+    - Lecture des entites restreinte aux seuls champs indexes, sans geometrie :
+      moins de colonnes dans le SELECT sur PostGIS, pas de QgsGeometry construite
+      inutilement sur les fichiers
+    - Journal d'indexation ecrit a cote du cache du projet (indexation.log) :
+      il survit a la fermeture de QGIS et permet de comparer deux passes
+    - Empreinte de couche et cle d'index calculees en blake2b au lieu de MD5 :
+      meme longueur, plus rapide. Les caches d'index existants sont reconstruits
+      a la premiere ouverture du projet
+    - Barre flottante : correction d'un plantage au repliement sous QGIS 4 / Qt 6
+      (enumeration QVBoxLayout non cadree)
+    - Les blocs de rattrapage d'erreur nomment desormais l'exception attendue
+      au lieu de tout avaler silencieusement
+    2.0.0
     - Compatibilite QGIS 4 / Qt 6 : le meme code tourne sur QGIS 3.16 a 4.x, sans branche separee
     - Nouvelle couche de compatibilite Qt5/Qt6 pour les evenements souris (core/qt_compat.py) : deplacement et redimensionnement de la barre flottante, outils de clic sur la carte
     - Enumerations Qt et QGIS toutes ecrites sous leur forme scopee (Qt, QgsRubberBand, QNetworkReply, QMetaType), seule forme acceptee par PyQt6

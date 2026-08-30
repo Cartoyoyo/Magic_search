@@ -897,7 +897,7 @@ class MagicSearchWidget(QDialog):
         self._dropdown.hide_results()
         self._input.clear()
         self._bar.hide()
-        self._main_layout.setSizeConstraint(QVBoxLayout.SetDefaultConstraint)
+        self._main_layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetDefaultConstraint)
         self.setMinimumSize(0, 0)
         self.setFixedSize(COLLAPSED_SIZE + 20, COLLAPSED_SIZE + 20)
         self._collapsed_btn.setGeometry(10, 10, COLLAPSED_SIZE, COLLAPSED_SIZE)

@@ -15,7 +15,8 @@ import struct
 import hashlib
 import unicodedata
 from qgis.PyQt.QtCore import QTimer, pyqtSignal, QObject, QMetaType
-from qgis.core import QgsProject, QgsVectorLayer, QgsMessageLog, Qgis
+from qgis.core import (QgsProject, QgsVectorLayer, QgsMessageLog, Qgis,
+                       QgsFeatureRequest)
 
 from bisect import bisect_right as _bisect_right
 
@@ -24,11 +25,15 @@ from ..i18n import tr
 DEFAULT_MAX_CACHE_MB = 50
 CACHE_VERSION = 4
 
-# Codec du cache. LZMA preset 3 : ~2,8x plus petit que gzip pour 0,3 s de
-# chargement en plus sur un projet de 20 couches. Les presets plus bas sont
-# a la fois plus gros ET plus lents a relire (moins d'octets a decompresser
-# l'emporte sur le cout par octet) ; le preset 6 gagne encore 2 Mo mais gele
-# l'interface ~10 s sur une grosse couche a la reindexation.
+# Codec du cache. LZMA preset 3. Le preset 0 a ete essaye : sur un index
+# synthetique il ecrit 5,5x plus vite pour un fichier 21 % plus petit, mais
+# sur un vrai projet le gain n'a ete que de 4 s sur 60 s d'indexation --
+# l'ecriture du cache n'est pas le poste dominant. Le preset 3 est donc
+# conserve pour sa taille sur des donnees reelles.
+#
+# Le preset ne concerne que l'ecriture : les proprietes du filtre voyagent
+# dans le flux .xz et lzma.decompress relit n'importe quel preset, donc en
+# changer n'invalide aucun cache et ne demande pas de bump de CACHE_VERSION.
 LZMA_PRESET = 3
 
 
@@ -39,8 +44,50 @@ def _compress(data):
 def _decompress(data):
     return lzma.decompress(data)
 TAG = 'Magic Search'
-TICK_MS = 10  # delai entre chaque lot d'entites
-BATCH_SIZE = 2000 # entites par tick
+
+# Un tick d'indexation travaille pendant BUDGET_MS puis rend la main a la
+# boucle d'evenements, au lieu de traiter un nombre fixe d'entites. Le lot
+# fixe avait les deux defauts a la fois : 2000 entites sur une couche a huit
+# champs bloquaient deja l'interface ~70 ms, et le delai qui suivait ajoutait
+# 10 ms de temps mort par lot (10 s sur deux millions d'entites). Le budget
+# borne la latence ET supprime l'attente, quel que soit le nombre de champs
+# ou le cout du fournisseur de donnees.
+BUDGET_MS = 30
+BUDGET_S = BUDGET_MS / 1000.0
+
+# Le lot est lu puis indexe champ par champ (cf. _index_batch), il faut donc
+# decider a l'avance combien d'entites lire. Sa taille s'ajuste au debit
+# observe au tick precedent pour tenir dans BUDGET_MS : elle depend du
+# fournisseur, du nombre de champs et de la longueur des valeurs, aucune
+# constante ne conviendrait a tous les cas.
+BATCH_START = 1000
+BATCH_MIN = 100
+BATCH_MAX = 50000
+
+
+def _fmt(n):
+    """Entier avec separateur de milliers, pour le journal."""
+    return '{:,}'.format(int(n)).replace(',', ' ')
+
+
+def _rate(n, seconds):
+    """Debit formate (n par seconde), ou '-' si la duree est nulle."""
+    return _fmt(n / seconds) if seconds > 0 else '-'
+
+
+# Journal d'indexation ecrit dans le dossier de cache du projet, a cote des
+# index. Le panneau de journal de QGIS se vide a chaque session ; ce fichier
+# garde les passes precedentes, ce qui permet de comparer un avant et un
+# apres. Il suit le projet, comme le cache.
+LOG_FILE = 'indexation.log'
+LOG_MAX_BYTES = 1024 * 1024   # au-dela, la passe suivante repart d'un fichier vide
+
+# Drapeau "sans geometrie" : enum non cadree jusqu'a QGIS 3.34, cadree a
+# partir de 3.36 et seule forme disponible sous QGIS 4.
+try:
+    NO_GEOMETRY = Qgis.FeatureRequestFlag.NoGeometry
+except AttributeError:
+    NO_GEOMETRY = QgsFeatureRequest.NoGeometry
 
 
 def normalize_text(text):
@@ -72,12 +119,17 @@ def _layer_name_score(layer_name, q):
 
 
 def _layer_fingerprint(layer):
-    """Hash rapide pour detecter les changements sur une couche."""
+    """Hash rapide pour detecter les changements sur une couche.
+
+    blake2b tronque a 16 octets : meme longueur qu'un MD5 (32 caracteres hex),
+    plus rapide, et sans le signalement B324 de Bandit qui bloque la
+    publication sur plugins.qgis.org. Ce n'est pas un hash de securite.
+    """
     source = layer.source()
     feat_count = layer.featureCount()
     fields = [f.name() for f in layer.fields()]
     raw = f"{source}|{feat_count}|{'|'.join(fields)}"
-    return hashlib.md5(raw.encode('utf-8')).hexdigest()
+    return hashlib.blake2b(raw.encode('utf-8'), digest_size=16).hexdigest()
 
 
 def _get_cache_dir(project_path):
@@ -115,7 +167,7 @@ def _index_key(fingerprint, excluded_fields, index_all_types=False):
     """
     raw = '%s|%s|%s' % (fingerprint, '|'.join(sorted(excluded_fields)),
                         int(bool(index_all_types)))
-    return hashlib.md5(raw.encode('utf-8')).hexdigest()
+    return hashlib.blake2b(raw.encode('utf-8'), digest_size=16).hexdigest()
 
 
 def _key_file(key):
@@ -325,50 +377,99 @@ def _search_column(col, q, max_per_field):
     return out, total
 
 
-def _index_feature(feat, field_names, layer_index, watched=None):
-    """Indexe plusieurs champs d'une seule entité.
+def _index_batch(feats, field_names, layer_index, watched=None, stats=None):
+    """Indexe un lot d'entites, un champ apres l'autre.
+
+    Parcourir le lot une fois par champ plutot qu'une fois par entite sort de
+    la boucle interne tout ce qui ne depend que du champ : le dict de valeurs
+    et le test d'observation. Mesure sur 250 000 entites et 8 champs :
+    6,17 s contre 7,18 s pour l'ancien parcours (x1,16), chronometrage inclus.
+
+    C'est aussi ce qui rend le chronometrage par champ gratuit : une lecture
+    d'horloge par champ et par lot, la ou chronometrer a la valeur coutait
+    30 % (mesure). `stats` est un dict {champ: [nb_valeurs, secondes]} rempli
+    au passage, ou None pour ne rien mesurer.
+
+    L'index produit est strictement identique a celui de l'ancien parcours :
+    les entites restent vues dans l'ordre pour chaque champ, donc l'ordre
+    d'insertion des valeurs comme celui des fid sont inchanges.
 
     `watched` contient les champs reels encore en observation. Des qu'une
     valeur porte une decimale non nulle, le champ est abandonne et tout ce qui
     avait ete accumule pour lui est jete : on ne garde que les colonnes typees
     en double qui se revelent entieres de bout en bout.
     """
+    if not feats:
+        return
     # Un champ abandonne en cours de lot doit le rester jusqu'a ce que
-    # l'appelant l'ote de field_names, sinon les entites suivantes du meme
-    # lot le reindexeraient comme du texte.
+    # l'appelant l'ote de field_names, sinon le lot suivant le reindexerait
+    # comme du texte.
     dropped = layer_index.setdefault('dropped', set())
+    all_fields = layer_index['fields']
+    perf_counter = time.perf_counter
+
     for fname in field_names:
         if fname in dropped:
             continue
+        t0 = perf_counter()
+        field_values = all_fields.get(fname)
+        if field_values is None:
+            field_values = all_fields[fname] = {}
+        is_watched = watched is not None and fname in watched
+        count = 0
+
+        # Un champ qui explose ne doit pas emporter le reste du lot. Le try
+        # est ici et non autour de chaque valeur : au lot il est gratuit.
         try:
-            val = feat[fname]
-        except Exception:
-            continue
-        if val is None or val == '':
-            continue
+            for feat in feats:
+                try:
+                    val = feat[fname]
+                except (KeyError, IndexError, TypeError, ValueError):
+                    continue
+                if val is None or val == '':
+                    continue
 
-        if watched and fname in watched:
-            if not _is_integral(val):
-                watched.discard(fname)
-                layer_index['fields'].pop(fname, None)
-                dropped.add(fname)
-                continue
-            # 12.0 se cherche en tapant "12", pas "12.0"
-            original = str(int(float(val)))
-        else:
-            original = str(val)
-        normalized = normalize_text(original)
+                if is_watched:
+                    if not _is_integral(val):
+                        watched.discard(fname)
+                        all_fields.pop(fname, None)
+                        dropped.add(fname)
+                        break
+                    # 12.0 se cherche en tapant "12", pas "12.0"
+                    original = str(int(float(val)))
+                else:
+                    original = str(val)
+                normalized = normalize_text(original)
 
-        if fname not in layer_index['fields']:
-            layer_index['fields'][fname] = {}
+                slot = field_values.get(normalized)
+                if slot is None:
+                    field_values[normalized] = {'original': original,
+                                                'fids': [feat.id()]}
+                else:
+                    slot['fids'].append(feat.id())
+                count += 1
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                f"{TAG}: erreur d'indexation du champ {fname}: {e}",
+                TAG, Qgis.MessageLevel.Warning
+            )
 
-        field_values = layer_index['fields'][fname]
-        if normalized not in field_values:
-            field_values[normalized] = {
-                'original': original,
-                'fids': []
-            }
-        field_values[normalized]['fids'].append(feat.id())
+        # Le dict a ete cree d'avance : le retirer s'il n'a rien recu, pour
+        # qu'un champ entierement vide reste absent de l'index comme avant.
+        if not field_values and fname in all_fields:
+            del all_fields[fname]
+
+        if stats is not None:
+            entry = stats.get(fname)
+            if entry is not None:
+                entry[0] += count
+                entry[1] += perf_counter() - t0
+
+
+def _index_feature(feat, field_names, layer_index, watched=None):
+    """Indexe une seule entite. Le parcours d'une couche passe par
+    _index_batch ; cette forme reste pour les appels unitaires."""
+    _index_batch((feat,), field_names, layer_index, watched)
 
 
 class IndexManager(QObject):
@@ -419,10 +520,29 @@ class IndexManager(QObject):
         self._watched_fields = set()
         self._index_all_types = False
         self._current_layer_data = None
+        self._current_count = 0
+        self._current_t0 = None
+        self._current_read_s = 0.0
+        self._current_index_s = 0.0
+        self._current_stats = {}     # champ -> [nb_valeurs, secondes]
+        self._batch_size = BATCH_START
+        self._reset_session()
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._process_next)
+
+    def _reset_session(self):
+        """Remet a zero les cumuls de la passe (ligne de synthese finale)."""
+        self._session_layers = 0      # couches reellement parcourues
+        self._session_attached = 0    # couches rattachees a un index existant
+        self._session_features = 0
+        self._session_values = 0
+        self._session_read_s = 0.0
+        self._session_index_s = 0.0
+        self._session_cols_s = 0.0
+        self._session_cache_s = 0.0
+        self._log_warned = False
 
     @property
     def is_ready(self):
@@ -583,6 +703,15 @@ class IndexManager(QObject):
         # deja en memoire reste donc valide apres un redemarrage force, et
         # n'est ni relu sur disque ni reconstruit.
         self._t0 = time.perf_counter()
+        self._reset_session()
+        # Ecrit apres _purge_all() : l'entete d'une reindexation complete
+        # survit ainsi a l'effacement du cache.
+        self._append_log(
+            ['', '=' * 78,
+             'Magic Search - passe du %s'
+             % time.strftime('%Y-%m-%d %H:%M:%S')],
+            rotate=True
+        )
 
         project = QgsProject.instance()
         all_layers = project.mapLayers()
@@ -679,6 +808,7 @@ class IndexManager(QObject):
                 'key': key,
                 'name': layer_name,
             }
+        self._session_attached += 1
         self.layer_ready.emit(layer_id)
 
     def _process_next(self):
@@ -699,7 +829,7 @@ class IndexManager(QObject):
 
             if not layer or not isinstance(layer, QgsVectorLayer) or not layer.isValid():
                 self._skipped.add(layer_id)
-                self._timer.start(TICK_MS)
+                self._timer.start(0)
                 return
 
             # Une couche jumelle a pu etre indexee entre-temps : on se
@@ -720,11 +850,33 @@ class IndexManager(QObject):
                 # Aucun champ indexable : rien a stocker, mais la couche a bien
                 # ete traitee (elle ne doit pas rester comptee comme manquante).
                 self._skipped.add(layer_id)
-                self._timer.start(TICK_MS)
+                self._timer.start(0)
                 return
 
             self._current_layer_id = layer_id
-            self._current_iterator = layer.getFeatures()
+            self._current_count = 0
+            # Debut du scan de la couche : c'est cette horloge, comparee a
+            # celle de la fin, qui donne les entites/s du journal.
+            self._current_t0 = time.perf_counter()
+            self._current_read_s = 0.0
+            self._current_index_s = 0.0
+            self._current_stats = {f: [0, 0.0] for f in self._current_fields}
+            self._batch_size = BATCH_START
+            # Ne demander au fournisseur que ce que l'index consomme. La
+            # geometrie n'est jamais lue ici (seuls les fid sont stockes) et
+            # les champs exclus, dates ou decimaux ont deja ete ecartes par
+            # _classify_fields. Sur PostGIS cela retire la geometrie et les
+            # colonnes inutiles du SELECT ; sur un fichier cela evite de
+            # construire un QgsGeometry par entite.
+            #
+            # Un champ reel demasque en cours de route sort de
+            # _current_fields mais reste dans la requete : sans consequence,
+            # _index_feature l'ignore via 'dropped'.
+            request = (QgsFeatureRequest()
+                       .setFlags(NO_GEOMETRY)
+                       .setSubsetOfAttributes(self._current_fields,
+                                              layer.fields()))
+            self._current_iterator = layer.getFeatures(request)
             self._current_layer_data = {
                 'name': layer.name(),
                 'key': key,
@@ -732,21 +884,42 @@ class IndexManager(QObject):
             }
             QgsMessageLog.logMessage(f"Magic Search: Debut indexation {layer.name()}", TAG, Qgis.MessageLevel.Info)
 
-        # Process BATCH
+        # Un tick = lecture d'un lot d'entites, puis indexation de ce lot
+        # champ par champ. Les deux phases sont chronometrees separement :
+        # savoir si le temps part dans le fournisseur de donnees ou dans la
+        # normalisation est ce qui dit ou optimiser.
+        perf_counter = time.perf_counter
+        t_start = perf_counter()
+        iterator = self._current_iterator
+        feats = []
+        append = feats.append
         done = False
-        count = 0
-        while count < BATCH_SIZE:
+        for _ in range(self._batch_size):
             try:
-                feat = next(self._current_iterator)
-                _index_feature(feat, self._current_fields,
-                               self._current_layer_data, self._watched_fields)
-                count += 1
+                append(next(iterator))
             except StopIteration:
                 done = True
                 break
             except Exception as e:
                 QgsMessageLog.logMessage(f"Erreur entité: {e}", TAG, Qgis.MessageLevel.Warning)
-                count += 1
+        t_read = perf_counter()
+
+        _index_batch(feats, self._current_fields, self._current_layer_data,
+                     self._watched_fields, self._current_stats)
+        t_end = perf_counter()
+
+        self._current_count += len(feats)
+        self._current_read_s += t_read - t_start
+        self._current_index_s += t_end - t_read
+
+        # Viser BUDGET_S au prochain tick. La moyenne avec la taille courante
+        # amortit les a-coups (un lot ralenti par une requete reseau ne doit
+        # pas faire s'effondrer le suivant).
+        elapsed = t_end - t_start
+        if feats and elapsed > 0:
+            target = len(feats) * BUDGET_S / elapsed
+            self._batch_size = int(max(BATCH_MIN, min(
+                BATCH_MAX, (self._batch_size + target) / 2)))
 
         # Champs reels demasques pendant ce lot : on cesse de les parcourir.
         dropped = self._current_layer_data.get('dropped')
@@ -763,16 +936,27 @@ class IndexManager(QObject):
         if done:
             layer_id = self._current_layer_id
             data = self._current_layer_data
+            # Le nombre de valeurs distinctes se lit sur les dicts, avant que
+            # _to_columnar ne les remplace par des colonnes.
+            uniques = {f: len(v) for f, v in data['fields'].items()}
             # Le dict d'indexation a fait son office (dedoublonnage) : on le
             # fige en colonnes et on laisse le ramasse-miettes reprendre la
             # centaine de Mo de petits objets qu'il occupait.
+            t_cols = time.perf_counter()
             data['fields'] = _to_columnar(data['fields'])
             data.pop('dropped', None)
             key = data.get('key')
             if key is not None:
                 self._by_key[key] = data['fields']
             self._index[layer_id] = data
+            t_cache = time.perf_counter()
             self._save_key_cache(key, data)
+            t_done = time.perf_counter()
+            # Le rapport est emis ici, et non avant, pour pouvoir imputer la
+            # mise en colonnes et la compression du cache : sur une grosse
+            # couche elles pesent plus que l'indexation elle-meme.
+            self._log_layer_report(data['name'], uniques,
+                                   t_cache - t_cols, t_done - t_cache)
             if self._manifest is not None and key is not None:
                 self._manifest[layer_id] = {
                     'file': _key_file(key),
@@ -781,16 +965,104 @@ class IndexManager(QObject):
                 }
                 self._write_manifest()
             self.layer_ready.emit(layer_id)
-            QgsMessageLog.logMessage(f"Magic Search: Fin indexation {self._current_layer_data['name']}", TAG, Qgis.MessageLevel.Info)
             self._current_iterator = None
             self._current_layer_id = None
             self._current_layer_data = None
+            self._current_count = 0
         else:
+            # Total courant de la couche : le nombre d'entites traitees par
+            # tick varie desormais avec le budget de temps, l'afficher ne
+            # voudrait plus rien dire.
             self.indexing_progress.emit(
-                tr('status_progress', layer=self._current_layer_data['name'], count=count)
+                tr('status_progress', layer=self._current_layer_data['name'],
+                   count=self._current_count)
             )
 
-        self._timer.start(TICK_MS)
+        self._timer.start(0)
+
+    def _log_path(self):
+        """Chemin du journal, ou None si le projet n'est pas enregistre."""
+        cache_dir = self._cache_dir()
+        return os.path.join(cache_dir, LOG_FILE) if cache_dir else None
+
+    def _append_log(self, lines, rotate=False):
+        """Ajoute des lignes au journal du projet.
+
+        Toute erreur est avalee (avec un avertissement, une seule fois par
+        passe) : un journal illisible ne doit jamais interrompre une
+        indexation, ni noyer le panneau de messages.
+        """
+        path = self._log_path()
+        if not path:
+            return                       # projet jamais enregistre
+        try:
+            directory = os.path.dirname(path)
+            if not os.path.isdir(directory):
+                os.makedirs(directory)
+            if (rotate and os.path.exists(path)
+                    and os.path.getsize(path) > LOG_MAX_BYTES):
+                os.remove(path)
+            with io.open(path, 'a', encoding='utf-8') as f:
+                f.write('\n'.join(lines) + '\n')
+        except Exception as e:
+            if not self._log_warned:
+                self._log_warned = True
+                QgsMessageLog.logMessage(
+                    "%s: journal non ecrit dans %s (%s)" % (TAG, path, e),
+                    TAG, Qgis.MessageLevel.Warning
+                )
+
+    def _log_layer_report(self, layer_name, uniques, cols_s=0.0, cache_s=0.0):
+        """Ecrit dans le journal ce que la couche vient de couter.
+
+        Un seul message multiligne : le panneau de journal horodate chaque
+        message, un rapport eclate en dix messages serait entrelace avec ceux
+        des autres couches et illisible.
+
+        Le debit en entites/s se lit sur l'horloge de la couche (debut du
+        scan -> maintenant). Il inclut donc les allers-retours par la boucle
+        d'evenements entre deux lots : c'est le temps que l'utilisateur a
+        reellement attendu, pas seulement celui passe a travailler.
+        """
+        stats = self._current_stats or {}
+        values = sum(s[0] for s in stats.values())
+        feats = self._current_count
+        wall = (time.perf_counter() - self._current_t0
+                if self._current_t0 is not None else 0.0)
+        work = self._current_read_s + self._current_index_s
+
+        lines = [
+            "[%s] %s entites en %.2f s -> %s entites/s"
+            % (layer_name, _fmt(feats), wall, _rate(feats, wall)),
+            "    valeurs : %s indexees, %s uniques -> %s valeurs/s"
+            % (_fmt(values), _fmt(sum(uniques.values())), _rate(values, work)),
+            "    temps   : lecture %.2f s + indexation %.2f s "
+            "+ colonnes %.2f s + cache %.2f s"
+            % (self._current_read_s, self._current_index_s, cols_s, cache_s),
+        ]
+        if stats:
+            lines.append("    champs  : (part du temps d'indexation)")
+            total_s = self._current_index_s
+            for fname, (n, seconds) in sorted(stats.items(),
+                                              key=lambda kv: -kv[1][1]):
+                share = (seconds / total_s * 100) if total_s > 0 else 0.0
+                lines.append(
+                    "      %-28s %11s val. %11s uniq. %7.2f s %5.1f %% "
+                    "%11s val/s"
+                    % (fname[:28], _fmt(n), _fmt(uniques.get(fname, 0)),
+                       seconds, share, _rate(n, seconds)))
+
+        QgsMessageLog.logMessage("\n".join(lines), TAG, Qgis.MessageLevel.Info)
+        self._append_log(['[%s] %s' % (time.strftime('%H:%M:%S'), lines[0])]
+                         + lines[1:])
+
+        self._session_layers += 1
+        self._session_features += feats
+        self._session_values += values
+        self._session_read_s += self._current_read_s
+        self._session_index_s += self._current_index_s
+        self._session_cols_s += cols_s
+        self._session_cache_s += cache_s
 
     def _finalize(self):
         """Termine l'indexation et sauvegarde."""
@@ -800,10 +1072,23 @@ class IndexManager(QObject):
         self._by_key = {k: v for k, v in self._by_key.items() if k in live}
         self._prune_cache()
         if self._t0 is not None:
-            QgsMessageLog.logMessage(
-                f"{TAG}: indexation terminee en {time.perf_counter() - self._t0:.2f}s",
-                TAG, Qgis.MessageLevel.Info
-            )
+            wall = time.perf_counter() - self._t0
+            work = self._session_read_s + self._session_index_s
+            summary = (
+                "indexation terminee en %.2f s | %d couche(s) parcourue(s), "
+                "%d rattachee(s) a un index existant\n"
+                "    %s entites, %s valeurs -> %s entites/s, %s valeurs/s\n"
+                "    temps : lecture %.2f s + indexation %.2f s "
+                "+ colonnes %.2f s + cache %.2f s ; le reste va au triage, "
+                "aux empreintes et a la relecture du cache"
+                % (wall, self._session_layers, self._session_attached,
+                   _fmt(self._session_features), _fmt(self._session_values),
+                   _rate(self._session_features, work),
+                   _rate(self._session_values, work),
+                   self._session_read_s, self._session_index_s,
+                   self._session_cols_s, self._session_cache_s))
+            QgsMessageLog.logMessage(summary, TAG, Qgis.MessageLevel.Info)
+            self._append_log(['[%s] %s' % (time.strftime('%H:%M:%S'), summary)])
             self._t0 = None
         self.refresh_sync_state()
         self.indexing_finished.emit()
@@ -817,6 +1102,9 @@ class IndexManager(QObject):
         self._current_iterator = None
         self._current_layer_id = None
         self._current_layer_data = None
+        self._current_count = 0
+        self._current_stats = {}
+        self._current_t0 = None
         # Une passe interrompue laisse un index partiel : l'etat le dit.
         self.refresh_sync_state()
 
@@ -887,9 +1175,14 @@ class IndexManager(QObject):
             self._queue.append(layer_id)
 
         if self._current_iterator is None and not self._timer.isActive():
+            # Reindexation isolee : elle merite le meme rapport qu'une passe
+            # complete, il lui faut donc sa propre horloge de depart.
+            if self._t0 is None:
+                self._t0 = time.perf_counter()
+                self._reset_session()
             self._set_sync_state(self.SYNC_SYNCING)
             self.indexing_started.emit()
-            self._timer.start(TICK_MS)
+            self._timer.start(0)
 
     def remove_layer(self, layer_id):
         self._skipped.discard(layer_id)
@@ -907,6 +1200,9 @@ class IndexManager(QObject):
             self._current_layer_id = None
             self._current_layer_data = None
             self._current_fields = []
+            self._current_count = 0
+            self._current_stats = {}
+            self._current_t0 = None
 
     # ---- Cache persistence ----
     # Un dossier "<projet>_magic_search_cache/" contenant :
@@ -1042,7 +1338,7 @@ class IndexManager(QObject):
                     del self._manifest[layer_id]
 
             # Un fichier reste tant qu'AU MOINS une couche le reference.
-            keep = {'manifest.json'}
+            keep = {'manifest.json', LOG_FILE}
             for entry in self._manifest.values():
                 if isinstance(entry, dict) and entry.get('file'):
                     keep.add(entry['file'])
@@ -1070,17 +1366,21 @@ class IndexManager(QObject):
             QgsMessageLog.logMessage(
                 f"{TAG}: ancien cache monolithique supprime.", TAG, Qgis.MessageLevel.Info
             )
-        except Exception:
+        except OSError:
             pass
 
     @staticmethod
     def _clear_cache_dir(cache_dir):
+        """Vide le cache d'un projet. Le journal, lui, n'est pas du cache :
+        il survit a une reindexation complete pour rester comparable."""
         try:
             for name in os.listdir(cache_dir):
+                if name == LOG_FILE:
+                    continue
                 full = os.path.join(cache_dir, name)
                 if os.path.isfile(full):
                     os.remove(full)
-        except Exception:
+        except OSError:
             pass
 
     @staticmethod
@@ -1091,6 +1391,6 @@ class IndexManager(QObject):
                 full = os.path.join(path, name)
                 if os.path.isfile(full):
                     total += os.path.getsize(full)
-        except Exception:
+        except OSError:
             pass
         return total

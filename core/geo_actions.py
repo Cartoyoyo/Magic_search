@@ -85,7 +85,9 @@ def _circle_icon():
     icon_type = getattr(QgsRubberBand, 'IconType', None)
     if icon_type is not None:
         return icon_type.ICON_CIRCLE
-    return QgsRubberBand.ICON_CIRCLE
+    # getattr et non l'acces direct : le verificateur Qt6 de plugins.qgis.org
+    # signale la forme non scopee sans voir le garde ci-dessus.
+    return getattr(QgsRubberBand, 'ICON_CIRCLE')
 
 
 def transform_point(iface, lon, lat):

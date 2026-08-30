@@ -286,7 +286,7 @@ class MagicSearch:
             QgsProject.instance().cleared.disconnect(self._on_project_closed)
             self.iface.newProjectCreated.disconnect(self._on_project_loaded)
             self.iface.mapCanvas().mapToolSet.disconnect(self._on_map_tool_set)
-        except Exception:
+        except (TypeError, RuntimeError):
             pass
 
         if self.reverse_tool:

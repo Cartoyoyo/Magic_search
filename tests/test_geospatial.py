@@ -53,13 +53,22 @@ def _setup_qgis_mocks():
         def logMessage(*args, **kwargs):
             pass
     class FakeQgis:
+        # Volontairement sans FeatureRequestFlag : reproduit QGIS 3.16-3.34,
+        # ou le drapeau NoGeometry n'existe que sur QgsFeatureRequest.
         class MessageLevel:
             Info, Warning, Critical, Success = 0, 1, 2, 3
+    class FakeQgsFeatureRequest:
+        NoGeometry = 1
+        def setFlags(self, *args):
+            return self
+        def setSubsetOfAttributes(self, *args):
+            return self
 
     core_mod.QgsProject = FakeQgsProject
     core_mod.QgsVectorLayer = FakeQgsVectorLayer
     core_mod.QgsMessageLog = FakeQgsMessageLog
     core_mod.Qgis = FakeQgis
+    core_mod.QgsFeatureRequest = FakeQgsFeatureRequest
 
     sys.modules['qgis'] = qgis_mod
     sys.modules['qgis.PyQt'] = pyqt_mod
@@ -138,7 +147,7 @@ class TestLayerFingerprint(unittest.TestCase):
         layer.fields = lambda: [MockField(n) for n in field_names]
         return layer
 
-    def test_fingerprint_is_md5(self):
+    def test_fingerprint_is_32_hex(self):
         fp = _layer_fingerprint(self._make_mock_layer())
         self.assertIsInstance(fp, str)
         self.assertEqual(len(fp), 32)

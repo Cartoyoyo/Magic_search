@@ -29,7 +29,7 @@ def _plugin_version():
             for line in f:
                 if line.startswith('version='):
                     return line.split('=', 1)[1].strip()
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         pass
     return '0.0.0'
 
