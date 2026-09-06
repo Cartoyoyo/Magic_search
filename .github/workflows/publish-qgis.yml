@@ -13,6 +13,12 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+
+    # softprops/action-gh-release a besoin d'ecrire le contenu du depot ;
+    # le token Actions est en lecture seule par defaut et repondrait 403.
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v7
 
@@ -25,3 +31,9 @@ jobs:
           OSGEO_USERNAME: ${{ secrets.OSGEO_USERNAME }}
           OSGEO_PASSWORD: ${{ secrets.OSGEO_PASSWORD }}
         run: python scripts/publish_qgis.py
+
+      - name: Creer la release GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          files: magic_search.*.zip
+          generate_release_notes: true
