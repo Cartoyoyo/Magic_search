@@ -59,6 +59,9 @@ def _setup_qgis_mocks():
             Info, Warning, Critical, Success = 0, 1, 2, 3
     class FakeQgsFeatureRequest:
         NoGeometry = 1
+        class Flag:
+            # Forme cadree utilisee par index_manager depuis la 2.1.1
+            NoGeometry = 1
         def setFlags(self, *args):
             return self
         def setSubsetOfAttributes(self, *args):
@@ -94,7 +97,14 @@ _get_legacy_cache_path = _index_manager._get_legacy_cache_path
 _index_key = _index_manager._index_key
 _index_feature = _index_manager._index_feature
 _to_columnar = _index_manager._to_columnar
+_index_batch = _index_manager._index_batch
+_date_texts = _index_manager._date_texts
+_technical_key_fields = _index_manager._technical_key_fields
 IndexManager = _index_manager.IndexManager
+
+_coord_parser = __import__(_PKG + '.core.coord_parser', fromlist=['*'])
+coordinate_candidates = _coord_parser.coordinate_candidates
+parse_coordinates = _coord_parser.parse_coordinates
 
 _qt_compat = __import__(_PKG + '.core.qt_compat', fromlist=['*'])
 event_pos = _qt_compat.event_pos
@@ -126,6 +136,13 @@ class TestNormalizeText(unittest.TestCase):
 
     def test_mixed_case_accents(self):
         self.assertEqual(normalize_text('\u00c9GLISE'), 'eglise')
+
+    def test_ligatures(self):
+        """NFD ne decompose pas les ligatures : "coeur" doit trouver "C\u0153ur"."""
+        self.assertEqual(normalize_text('C\u0153ur de ville'), 'coeur de ville')
+        self.assertEqual(normalize_text('\u0152UVRE'), 'oeuvre')
+        self.assertEqual(normalize_text('L\u00e6titia'), 'laetitia')
+        self.assertEqual(normalize_text('Stra\u00dfe'), 'strasse')
 
 
 class TestLayerFingerprint(unittest.TestCase):
@@ -167,6 +184,50 @@ class TestLayerFingerprint(unittest.TestCase):
         fp2 = _layer_fingerprint(self._make_mock_layer())
         self.assertEqual(fp1, fp2)
 
+    def test_fingerprint_changes_when_file_is_modified(self):
+        """Une valeur corrigee ne change ni la source, ni le nombre d'entites,
+        ni les champs : seul le fichier le dit (taille / date)."""
+        import tempfile
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, 'reseau.gpkg')
+        with open(path, 'wb') as f:
+            f.write(b'avant')
+        layer = self._make_mock_layer(source=path + '|layername=regards')
+        fp1 = _layer_fingerprint(layer)
+        self.assertEqual(fp1, _layer_fingerprint(layer))
+        with open(path, 'wb') as f:
+            f.write(b'apres modification')
+        self.assertNotEqual(fp1, _layer_fingerprint(layer))
+
+    def test_geopackage_watches_wal(self):
+        """Base ouverte en mode WAL : l'ecriture va dans le journal -wal, le
+        fichier principal ne bouge pas."""
+        import tempfile
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, 'reseau.gpkg')
+        with open(path, 'wb') as f:
+            f.write(b'base')
+        layer = self._make_mock_layer(source=path + '|layername=regards')
+        fp1 = _layer_fingerprint(layer)
+        with open(path + '-wal', 'wb') as f:
+            f.write(b'ecriture en attente')
+        self.assertNotEqual(fp1, _layer_fingerprint(layer))
+
+    def test_shapefile_watches_dbf(self):
+        """Les attributs d'un shapefile sont dans le .dbf."""
+        import tempfile
+        tmpdir = tempfile.mkdtemp()
+        shp = os.path.join(tmpdir, 'regards.shp')
+        dbf = os.path.join(tmpdir, 'regards.dbf')
+        for p in (shp, dbf):
+            with open(p, 'wb') as f:
+                f.write(b'x')
+        layer = self._make_mock_layer(source=shp)
+        fp1 = _layer_fingerprint(layer)
+        with open(dbf, 'wb') as f:
+            f.write(b'valeur corrigee')
+        self.assertNotEqual(fp1, _layer_fingerprint(layer))
+
 
 class TestIndexFeature(unittest.TestCase):
     """Tests de _index_feature (indexation des valeurs d'un champ)."""
@@ -205,6 +266,86 @@ class TestIndexFeature(unittest.TestCase):
         feat = self.MockFeature({'nom': None})
         _index_feature(feat, ['nom'], layer_index)
         self.assertNotIn('nom', layer_index['fields'])
+
+    def test_date_indexed_as_iso_and_french(self):
+        """Une date se cherche en 2024-03-01 comme en 01/03/2024, pas sous la
+        forme "pyqt5.qtcore.qdate(2024, 3, 1)"."""
+        import datetime
+        layer_index = {'fields': {}}
+        feat = self.MockFeature({'date_pose': datetime.date(2024, 3, 1)}, fid=7)
+        _index_batch((feat,), ['date_pose'], layer_index, dates={'date_pose'})
+        values = layer_index['fields']['date_pose']
+        self.assertEqual(values['2024-03-01']['fids'], [7])
+        self.assertEqual(values['01/03/2024']['fids'], [7])
+
+    def test_qt_like_date_texts(self):
+        class QDate:
+            def isValid(self):
+                return True
+            def toString(self, fmt):
+                return {'yyyy-MM-dd': '2024-03-01', 'dd/MM/yyyy': '01/03/2024'}[fmt]
+        self.assertEqual(_date_texts(QDate()), ('2024-03-01', '01/03/2024'))
+
+    def test_invalid_qt_date_is_skipped(self):
+        class QDate:
+            def isValid(self):
+                return False
+        self.assertEqual(_date_texts(QDate()), ())
+
+
+class TestTechnicalKey(unittest.TestCase):
+    """Le fid d'un GeoPackage n'est pas indexe ; la cle PostGIS, si."""
+
+    def _layer(self, provider):
+        class Fields:
+            def at(self, i):
+                class F:
+                    def name(self):
+                        return 'fid'
+                return F()
+        class Layer:
+            def providerType(self):
+                return provider
+            def fields(self):
+                return Fields()
+            def primaryKeyAttributes(self):
+                return [0]
+        return Layer()
+
+    def test_gpkg_fid_excluded(self):
+        self.assertEqual(_technical_key_fields(self._layer('ogr')), {'fid'})
+
+    def test_postgis_key_kept(self):
+        self.assertEqual(_technical_key_fields(self._layer('postgres')), set())
+
+
+class TestCoordinateCandidates(unittest.TestCase):
+    """Lecture des coordonnees tapees dans la barre."""
+
+    VICHY = (3.42, 46.12)   # (lon, lat)
+
+    def test_lat_lon_near_vichy_first(self):
+        c = coordinate_candidates('46.1278, 3.4206', near=self.VICHY)
+        self.assertEqual((c[0]['lat'], c[0]['lon']), (46.1278, 3.4206))
+
+    def test_lon_lat_near_vichy_first(self):
+        """Ordre x, y de QGIS : ne doit plus envoyer en Somalie."""
+        c = coordinate_candidates('3.4206, 46.1278', near=self.VICHY)
+        self.assertEqual((c[0]['lat'], c[0]['lon']), (46.1278, 3.4206))
+        self.assertEqual(len(c), 2)
+
+    def test_single_reading_when_only_one_order_valid(self):
+        c = coordinate_candidates('46.1, 120.5')
+        self.assertEqual(len(c), 1)
+        self.assertEqual(c[0]['lon'], 120.5)
+
+    def test_lambert93(self):
+        c = coordinate_candidates('726500, 6556500')
+        self.assertEqual(c[0]['crs'], 'EPSG:2154')
+
+    def test_not_a_coordinate(self):
+        self.assertEqual(coordinate_candidates('RG-0042'), [])
+        self.assertIsNone(parse_coordinates('rue de paris'))
 
 
 class TestGetCachePath(unittest.TestCase):
@@ -278,6 +419,9 @@ class TestIndexSearch(unittest.TestCase):
 
     def _make_index(self):
         mgr = IndexManager.__new__(IndexManager)
+        # Ce faux index n'appartient a aucun projet : sans cela, lance dans
+        # QGIS, le filtre "couches cochees" ecartait layer_1 du projet ouvert.
+        mgr._search_all_layers = True
         mgr._index = {
             'layer_1': {
                 'name': 'Communes',
@@ -320,6 +464,19 @@ class TestIndexSearch(unittest.TestCase):
         fids = results[0]['matches'][0]['fids']
         self.assertIsInstance(fids, list)
         self.assertEqual(fids, [1, 3])
+
+    def test_search_words_any_order(self):
+        """"chatel step" doit trouver "STEP Chatel Montagne" : tous les mots,
+        dans n'importe quel ordre, quelle que soit la ponctuation."""
+        mgr = self._make_index()
+        for q in ('allier bellerive', 'sur bellerive', 'bellerive sur allier'):
+            originals = [m['original'] for r in mgr.search(q) for m in r['matches']]
+            self.assertIn('Bellerive-sur-Allier', originals, q)
+
+    def test_search_words_need_all_words(self):
+        mgr = self._make_index()
+        originals = [m['original'] for r in mgr.search('bellerive cusset') for m in r['matches']]
+        self.assertEqual(originals, [])
 
     def test_search_ranks_exact_before_prefix(self):
         mgr = self._make_index()

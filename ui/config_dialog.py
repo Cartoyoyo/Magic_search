@@ -8,7 +8,7 @@ import os
 import html
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QPushButton,
-    QGroupBox, QScrollArea, QWidget, QSpinBox, QComboBox, QFrame,
+    QGroupBox, QSpinBox, QComboBox, QFrame,
     QTreeWidget, QTreeWidgetItem, QLineEdit
 )
 from qgis.PyQt.QtCore import Qt, QUrl, pyqtSignal

@@ -9,21 +9,38 @@ import os
 import sys
 import lzma
 import json
+import re
 import time
 import array
 import struct
 import hashlib
+import threading
 import unicodedata
+import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from qgis.PyQt.QtCore import QTimer, pyqtSignal, QObject, QMetaType
 from qgis.core import (QgsProject, QgsVectorLayer, QgsMessageLog, Qgis,
                        QgsFeatureRequest)
 
 from bisect import bisect_right as _bisect_right
 
+# Valeur NULL d'un attribut : QGIS 3 (PyQt5) la rend sous forme de QVariant
+# nul et non de None. Sans ce test, "NULL" etait indexe comme une vraie
+# valeur (taper "null" trouvait toutes les entites sans valeur), et la
+# comparaison val == '' sur un QVariant passe par une surcouche Python
+# couteuse. Sous QGIS 4 (PyQt6) il n'y a plus de QVariant : NULL vaut None.
+try:
+    from qgis.PyQt.QtCore import QVariant as _QVariant
+except ImportError:
+    _QVariant = None
+
 from ..i18n import tr
 
 DEFAULT_MAX_CACHE_MB = 50
-CACHE_VERSION = 4
+# 5 : normalisation des ligatures (oe, ae, ss) et dates lisibles. Les index
+# des versions precedentes ne trouveraient pas "coeur" : on les reconstruit.
+# 6 : les valeurs NULL (QVariant nul) ne sont plus indexees sous "NULL".
+CACHE_VERSION = 6
 
 # Codec du cache. LZMA preset 3. Le preset 0 a ete essaye : sur un index
 # synthetique il ecrit 5,5x plus vite pour un fichier 21 % plus petit, mais
@@ -92,13 +109,18 @@ except AttributeError:
     NO_GEOMETRY = QgsFeatureRequest.Flag.NoGeometry
 
 
+# Les ligatures ne se decomposent pas en NFD : sans cette table, "coeur" ne
+# trouverait jamais "Cœur de ville" (et inversement).
+_LIGATURES = str.maketrans({'œ': 'oe', 'æ': 'ae', 'ß': 'ss'})
+
+
 def normalize_text(text):
     """Supprime accents et passe en minuscules pour recherche insensible."""
     if not isinstance(text, str):
         text = str(text)
     text = unicodedata.normalize('NFD', text)
     text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
-    return text.lower()
+    return text.lower().translate(_LIGATURES)
 
 
 def _layer_name_score(layer_name, q):
@@ -120,17 +142,76 @@ def _layer_name_score(layer_name, q):
     return 5
 
 
-def _layer_fingerprint(layer):
+def _source_files(source):
+    """Fichiers candidats dont depend une source fichier (GeoPackage,
+    shapefile, CSV...), le fichier principal en tete.
+
+    La source OGR est "chemin|layername=..." ; celle d'un CSV est une URL
+    file:///chemin?options. Rien n'est verifie ici : sur un lecteur reseau
+    chaque acces au disque coute plusieurs centaines de millisecondes,
+    _source_stamp se contente donc d'un os.stat par candidat.
+    """
+    path = source.split('|', 1)[0]
+    if path.startswith('file:'):
+        path = urllib.parse.unquote(urllib.parse.urlparse(path).path)
+        if len(path) > 2 and path[0] == '/' and path[2] == ':':
+            path = path[1:]                  # /C:/... -> C:/...
+    if not path:
+        return []
+    base, ext = os.path.splitext(path)
+    ext = ext.lower()
+    if ext == '.shp':
+        # Les attributs d'un shapefile vivent dans le .dbf : modifier une
+        # valeur ne touche pas au .shp.
+        return [path, base + '.dbf']
+    if ext in ('.gpkg', '.sqlite', '.db'):
+        # Mode WAL : tant qu'une connexion reste ouverte, les ecritures vont
+        # dans le journal -wal et le fichier principal ne bouge pas. Le
+        # journal n'existe qu'apres une ecriture (une simple lecture n'en
+        # cree pas) : l'empreinte reste stable tant que personne n'ecrit.
+        return [path, path + '-wal']
+    return [path]
+
+
+def _source_stamp(source):
+    """Taille et date de modification des fichiers de la source.
+
+    C'est ce qui fait qu'une valeur corrigee dans un fichier (meme nombre
+    d'entites, memes champs) change l'empreinte, y compris quand la
+    modification vient d'un autre logiciel ou d'un autre poste. Toutes les
+    couches d'un meme GeoPackage partagent ce tampon : en modifier une fait
+    reparcourir les autres a la synchronisation suivante.
+
+    Appele depuis des fils de fond (cf. IndexManager._prefetch_stamps) : sur
+    un lecteur reseau, un os.stat prend 0,2 a 0,4 s ; fait dans la boucle de
+    l'interface, cela gelait QGIS 8,6 s au debut d'une passe de 23 couches.
+    """
+    stamps = []
+    for i, path in enumerate(_source_files(source)):
+        try:
+            st = os.stat(path)
+        except (OSError, ValueError):
+            if i == 0:
+                return ''                    # pas un fichier (PostGIS, memoire...)
+            continue
+        stamps.append('%d:%d' % (st.st_size, st.st_mtime_ns))
+    return ','.join(stamps)
+
+
+def _layer_fingerprint(layer, stamp=None):
     """Hash rapide pour detecter les changements sur une couche.
 
     blake2b tronque a 16 octets : meme longueur qu'un MD5 (32 caracteres hex),
     plus rapide, et sans le signalement B324 de Bandit qui bloque la
     publication sur plugins.qgis.org. Ce n'est pas un hash de securite.
+    `stamp` : tampon des fichiers deja lu en fond (cf. _source_stamp).
     """
     source = layer.source()
     feat_count = layer.featureCount()
     fields = [f.name() for f in layer.fields()]
-    raw = f"{source}|{feat_count}|{'|'.join(fields)}"
+    if stamp is None:
+        stamp = _source_stamp(source)
+    raw = f"{source}|{feat_count}|{'|'.join(fields)}|{stamp}"
     return hashlib.blake2b(raw.encode('utf-8'), digest_size=16).hexdigest()
 
 
@@ -187,29 +268,73 @@ DATE_TYPES = frozenset((int(QMetaType.Type.QDate),
 REAL_TYPES = frozenset((int(QMetaType.Type.Double),))
 
 
+def _technical_key_fields(layer):
+    """Cle primaire technique d'une source fichier (le fid d'un GeoPackage).
+
+    Ce numero interne n'a rien de metier : l'indexer faisait remonter, sur
+    "12", l'entite numero 12 de chaque couche. Seules les sources OGR sont
+    concernees : sur PostGIS, la cle primaire est souvent un identifiant
+    metier (numero de regard) qu'on veut justement retrouver.
+    """
+    try:
+        if layer.providerType() != 'ogr':
+            return set()
+        fields = layer.fields()
+        return {fields.at(i).name() for i in layer.primaryKeyAttributes()}
+    except Exception:
+        return set()
+
+
 def _classify_fields(layer, excluded_fields, index_all):
-    """Retourne (champs a indexer, champs reels en observation).
+    """Retourne (champs a indexer, champs reels en observation, champs date).
 
     Un champ reel n'est pas exclu d'emblee : beaucoup de sources (shapefile,
     exports) typent en double des colonnes qui ne contiennent que des entiers,
     et ce sont souvent des champs metier qu'on cherche vraiment. On les indexe
     donc, quitte a les abandonner des qu'une vraie decimale apparait.
     """
-    fields, watched = [], set()
+    fields, watched, dates = [], set(), set()
+    technical = _technical_key_fields(layer)
     for f in layer.fields():
         name = f.name()
-        if name in excluded_fields:
+        if name in excluded_fields or name in technical:
             continue
         try:
             ftype = int(f.type())
         except Exception:
             ftype = None
-        if not index_all and ftype in DATE_TYPES:
-            continue
+        if ftype in DATE_TYPES:
+            if not index_all:
+                continue
+            dates.add(name)
         if not index_all and ftype in REAL_TYPES:
             watched.add(name)
         fields.append(name)
-    return fields, watched
+    return fields, watched, dates
+
+
+def _date_texts(val):
+    """Formes cherchables d'une date : ISO (2024-03-01) et francaise (01/03/2024).
+
+    str() sur une QDate donnait "PyQt5.QtCore.QDate(2024, 3, 1)", introuvable.
+    Les types sont reconnus par leur nom pour ne pas importer QtCore ici
+    (le module reste testable hors QGIS).
+    """
+    kind = type(val).__name__
+    if kind in ('QDate', 'QDateTime', 'QTime'):
+        if not val.isValid():
+            return ()
+        if kind == 'QDate':
+            return (val.toString('yyyy-MM-dd'), val.toString('dd/MM/yyyy'))
+        if kind == 'QTime':
+            return (val.toString('HH:mm:ss'),)
+        return (val.toString('yyyy-MM-dd HH:mm:ss'),
+                val.toString('dd/MM/yyyy HH:mm:ss'))
+    if hasattr(val, 'year') and hasattr(val, 'strftime'):   # date / datetime Python
+        if hasattr(val, 'hour'):
+            return (val.strftime('%Y-%m-%d %H:%M:%S'), val.strftime('%d/%m/%Y %H:%M:%S'))
+        return (val.strftime('%Y-%m-%d'), val.strftime('%d/%m/%Y'))
+    return (str(val),)
 
 
 def _is_integral(val):
@@ -337,32 +462,63 @@ def _column_value(hay, starts, idx):
     return hay[starts[idx]:starts[idx + 1] - 1]
 
 
+# Separateurs entre mots d'une saisie : "chatel-montagne" doit trouver
+# "Chatel Montagne" et inversement.
+_WORD_SPLIT = re.compile(r"[\s\-_'’/.,;:()]+")
+
+
+def _query_words(q):
+    """Mots de la saisie normalisee (au moins un : la saisie elle-meme)."""
+    words = [w for w in _WORD_SPLIT.split(q) if w]
+    return words or [q]
+
+
 def _search_column(col, q, max_per_field):
-    """Balaye une colonne. Retourne (meilleurs resultats, total)."""
+    """Balaye une colonne. Retourne (meilleurs resultats, total).
+
+    Une valeur repond si elle contient tous les mots de la saisie, dans
+    n'importe quel ordre : "chatel step" trouve "STEP Chatel Montagne".
+    Classement : 0 valeur exacte, 1 commence par la saisie, 2 contient la
+    saisie telle quelle, 3 contient tous les mots dans le desordre.
+
+    Le balayage cherche le mot le plus long (le plus selectif) avec str.find
+    sur la colonne, en C ; les autres mots ne sont verifies que sur les
+    valeurs candidates.
+    """
     hay, starts = col['hay'], col['starts']
+    words = _query_words(q)
+    needle = max(words, key=len)
+    others = list(words)
+    others.remove(needle)
     hits, pos, last = [], 0, -1
     find = hay.find
     bisect = _bisect_right
     while True:
-        i = find(q, pos)
+        i = find(needle, pos)
         if i < 0:
             break
-        idx = bisect(starts, i) - 1
-        if idx != last and idx >= 0:
-            # 0 = valeur exacte, 1 = commence par, 2 = contient
-            if i == starts[idx]:
-                score = 0 if starts[idx + 1] - 1 - i == len(q) else 1
-            else:
-                score = 2
-            hits.append((score, idx))
-            last = idx
         pos = i + 1
+        idx = bisect(starts, i) - 1
+        if idx == last or idx < 0:
+            continue
+        last = idx
+        if others:
+            value = hay[starts[idx]:starts[idx + 1] - 1]
+            if not all(w in value for w in others):
+                continue
+            j = value.find(q)
+            score = 0 if value == q else (1 if j == 0 else (2 if j > 0 else 3))
+        elif i == starts[idx]:
+            score = 0 if starts[idx + 1] - 1 - i == len(needle) and needle == q else 1
+        else:
+            score = 2
+        hits.append((score, idx))
 
     if not hits:
         return [], 0
 
     total = len(hits)
-    hits.sort()          # (score, idx) : exact, puis prefixe, puis contenu
+    hits.sort()          # (score, idx) : exact, prefixe, phrase, mots
     best = hits[:max_per_field]
 
     orig, orig_starts = col['orig'], col['orig_starts']
@@ -379,7 +535,8 @@ def _search_column(col, q, max_per_field):
     return out, total
 
 
-def _index_batch(feats, field_names, layer_index, watched=None, stats=None):
+def _index_batch(feats, field_names, layer_index, watched=None, stats=None,
+                 dates=None):
     """Indexe un lot d'entites, un champ apres l'autre.
 
     Parcourir le lot une fois par champ plutot qu'une fois par entite sort de
@@ -400,6 +557,18 @@ def _index_batch(feats, field_names, layer_index, watched=None, stats=None):
     valeur porte une decimale non nulle, le champ est abandonne et tout ce qui
     avait ete accumule pour lui est jete : on ne garde que les colonnes typees
     en double qui se revelent entieres de bout en bout.
+
+    `dates` contient les champs date (indexes seulement sur option) : chaque
+    valeur y est rangee sous ses formes ISO et francaise (cf. _date_texts).
+
+    Deux accelerations, sans effet sur l'index produit (mesurees sur un
+    shapefile reseau de 32 405 troncons x 47 champs) :
+    - les attributs sont lus une fois par entite (attributes(), positions
+      dans layer_index['idx']) au lieu de feat[nom] pour chaque champ, qui
+      cherche le champ par son nom a chaque appel ;
+    - layer_index['memo'] retient, par champ, la case deja trouvee pour
+      chaque valeur brute : une valeur repetee (commune, materiau, champ
+      constant) n'est plus convertie ni normalisee qu'une seule fois.
     """
     if not feats:
         return
@@ -408,7 +577,15 @@ def _index_batch(feats, field_names, layer_index, watched=None, stats=None):
     # comme du texte.
     dropped = layer_index.setdefault('dropped', set())
     all_fields = layer_index['fields']
+    memo_all = layer_index.setdefault('memo', {})
+    positions = layer_index.get('idx')
     perf_counter = time.perf_counter
+
+    # Lecture du lot une seule fois : (fid, attributs) ou (fid, entite)
+    if positions is not None:
+        rows = [(f.id(), f.attributes()) for f in feats]
+    else:
+        rows = [(f.id(), f) for f in feats]
 
     for fname in field_names:
         if fname in dropped:
@@ -418,23 +595,52 @@ def _index_batch(feats, field_names, layer_index, watched=None, stats=None):
         if field_values is None:
             field_values = all_fields[fname] = {}
         is_watched = watched is not None and fname in watched
+        is_date = dates is not None and fname in dates
+        memo = memo_all.get(fname)
+        if memo is None:
+            memo = memo_all[fname] = {}
+        pos = positions.get(fname, -1) if positions is not None else None
         count = 0
 
         # Un champ qui explose ne doit pas emporter le reste du lot. Le try
         # est ici et non autour de chaque valeur : au lot il est gratuit.
         try:
-            for feat in feats:
+            for fid, src in rows:
                 try:
-                    val = feat[fname]
+                    val = src[pos] if pos is not None else src[fname]
                 except (KeyError, IndexError, TypeError, ValueError):
                     continue
-                if val is None or val == '':
+                if val is None or val.__class__ is _QVariant or val == '':
+                    continue
+
+                # Valeur deja rencontree dans ce champ : meme case, sans
+                # reconversion ni normalisation.
+                try:
+                    slot = memo.get(val)
+                except TypeError:            # valeur non hachable
+                    slot = None
+                if slot is not None:
+                    slot['fids'].append(fid)
+                    count += 1
+                    continue
+
+                if is_date:
+                    for original in _date_texts(val):
+                        normalized = normalize_text(original)
+                        slot = field_values.get(normalized)
+                        if slot is None:
+                            field_values[normalized] = {'original': original,
+                                                        'fids': [fid]}
+                        else:
+                            slot['fids'].append(fid)
+                    count += 1
                     continue
 
                 if is_watched:
                     if not _is_integral(val):
                         watched.discard(fname)
                         all_fields.pop(fname, None)
+                        memo_all.pop(fname, None)
                         dropped.add(fname)
                         break
                     # 12.0 se cherche en tapant "12", pas "12.0"
@@ -445,10 +651,14 @@ def _index_batch(feats, field_names, layer_index, watched=None, stats=None):
 
                 slot = field_values.get(normalized)
                 if slot is None:
-                    field_values[normalized] = {'original': original,
-                                                'fids': [feat.id()]}
+                    slot = field_values[normalized] = {'original': original,
+                                                       'fids': [fid]}
                 else:
-                    slot['fids'].append(feat.id())
+                    slot['fids'].append(fid)
+                try:
+                    memo[val] = slot
+                except TypeError:
+                    pass
                 count += 1
         except Exception as e:
             QgsMessageLog.logMessage(
@@ -474,6 +684,65 @@ def _index_feature(feat, field_names, layer_index, watched=None):
     _index_batch((feat,), field_names, layer_index, watched)
 
 
+class _CacheBudget:
+    """Taille courante du dossier de cache, partagee avec le fil d'ecriture."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._bytes = 0
+
+    def get(self):
+        with self._lock:
+            return self._bytes
+
+    def set(self, value):
+        with self._lock:
+            self._bytes = value
+
+    def add(self, delta):
+        with self._lock:
+            self._bytes += delta
+
+    def reserve(self, size, max_bytes):
+        """Retient `size` octets si le plafond le permet. Retourne le total vise."""
+        with self._lock:
+            projected = self._bytes + size
+            if projected <= max_bytes:
+                self._bytes = projected
+            return projected
+
+
+def _write_cache_file(path, payload, name, max_bytes, budget):
+    """Compresse et ecrit un index, hors du fil principal.
+
+    La compression LZMA d'une grosse couche prend plusieurs secondes : faite
+    dans le dernier tick, elle gelait QGIS (4 s mesurees sur 200 000
+    entites). lzma relache le GIL, le fil d'ecriture ne ralentit donc pas
+    l'interface. Le fichier est ecrit sous un nom temporaire puis renomme :
+    un QGIS ferme en pleine ecriture laisse un .tmp ignore, jamais un index
+    tronque.
+    """
+    try:
+        compressed = _compress(payload)
+        projected = budget.reserve(len(compressed), max_bytes)
+        if projected > max_bytes:
+            QgsMessageLog.logMessage(
+                f"{TAG}: plafond de cache atteint "
+                f"({projected / 1048576:.1f} Mo > {max_bytes / 1048576:.0f} Mo), "
+                f"index non mis en cache: {name}",
+                TAG, Qgis.MessageLevel.Warning
+            )
+            return
+        tmp = path + '.tmp'
+        with open(tmp, 'wb') as f:
+            f.write(compressed)
+        os.replace(tmp, path)
+    except Exception as e:
+        QgsMessageLog.logMessage(
+            f"{TAG}: erreur sauvegarde cache: {e}", TAG, Qgis.MessageLevel.Warning
+        )
+
+
 class IndexManager(QObject):
     """Gestionnaire principal de l'index avec traitement incremental par champ."""
 
@@ -486,6 +755,9 @@ class IndexManager(QObject):
     # sans __init__ (c'est ce que font les tests unitaires).
     _search_all_layers = False
     _skipped = frozenset()
+    _stale = frozenset()
+    _layers_config = {}
+    _index_all_types = False
 
     indexing_started = pyqtSignal()
     indexing_progress = pyqtSignal(str)
@@ -505,13 +777,24 @@ class IndexManager(QObject):
         # compteraient eternellement comme "manquantes" et le bouton de
         # synchronisation resterait orange apres une passe complete.
         self._skipped = set()
+        # Couches dont les donnees ont change depuis leur indexation
+        # (modifications enregistrees dans QGIS) : elles restent cherchables
+        # sur l'ancien index, mais le bouton passe a l'orange et la prochaine
+        # synchronisation les reparcourt au lieu de relire le cache.
+        self._stale = set()
+        self._watched = set()      # couches dont on ecoute les enregistrements
 
         # File d'attente : liste de layer_id
         self._queue = []
         # Triage incremental (chargement cache + empreintes)
         self._pending = []
         self._manifest = None      # layer_id -> {'file', 'key', 'name'}
-        self._cache_bytes = 0      # taille courante du dossier de cache
+        self._budget = _CacheBudget()   # taille courante du dossier de cache
+        self._writer = None        # fil d'ecriture du cache (cree a la demande)
+        self._stamper = None       # fils de lecture des dates de fichiers
+        self._stamps = {}          # source -> Future du tampon (cf. _prefetch_stamps)
+        self._stamp_wait = False
+        self._writes = []          # ecritures en cours
         self._keys = {}            # layer_id -> cle d'index
         self._by_key = {}          # cle d'index -> dict 'fields' partage
         self._t0 = None
@@ -520,8 +803,14 @@ class IndexManager(QObject):
         self._current_iterator = None
         self._current_fields = []
         self._watched_fields = set()
+        self._date_fields = set()
         self._index_all_types = False
         self._current_layer_data = None
+        # Mise en colonnes de la couche qui vient d'etre lue : champs restant
+        # a convertir (None hors de cette phase), faite sur plusieurs ticks.
+        self._columnize_pending = None
+        self._columnize_s = 0.0
+        self._current_uniques = {}
         self._current_count = 0
         self._current_t0 = None
         self._current_read_s = 0.0
@@ -545,6 +834,14 @@ class IndexManager(QObject):
         self._session_cols_s = 0.0
         self._session_cache_s = 0.0
         self._log_warned = False
+
+    @property
+    def _cache_bytes(self):
+        return self._budget.get()
+
+    @_cache_bytes.setter
+    def _cache_bytes(self, value):
+        self._budget.set(value)
 
     @property
     def is_ready(self):
@@ -572,22 +869,133 @@ class IndexManager(QObject):
         self._by_key = {}
         self._keys = {}
         self._skipped = set()
+        self._stale = set()
         self._is_ready = False
 
+    def _layer_cfg(self, layer_id):
+        """Ce qui, dans la configuration, change le contenu d'un index."""
+        conf = self._layers_config.get(layer_id, {})
+        return (tuple(sorted(conf.get('excluded_fields', []))),
+                bool(self._index_all_types))
+
     def missing_layers(self):
-        """Couches indexables du projet qui ne sont pas (encore) dans l'index.
+        """Couches indexables du projet dont l'index manque ou n'est plus a jour.
 
         Test volontairement bon marche (type, validite, exclusion) : il est
         appele a chaque changement de couche, il ne doit jamais interroger la
-        source de donnees.
+        source de donnees. "Plus a jour" = donnees enregistrees depuis
+        l'indexation, ou champs exclus / option dates changes depuis.
         """
         project = QgsProject.instance()
-        return [
-            layer_id for layer_id, layer in project.mapLayers().items()
-            if self._is_indexable(layer_id, layer)
-            and layer_id not in self._index
-            and layer_id not in self._skipped
-        ]
+        missing = []
+        for layer_id, layer in project.mapLayers().items():
+            if not self._is_indexable(layer_id, layer):
+                continue
+            entry = self._index.get(layer_id)
+            if entry is None:
+                if layer_id not in self._skipped:
+                    missing.append(layer_id)
+            elif (layer_id in self._stale
+                  or entry.get('cfg', self._layer_cfg(layer_id)) != self._layer_cfg(layer_id)):
+                missing.append(layer_id)
+        return missing
+
+    def stats(self):
+        """(couches indexees, valeurs distinctes, couches indexables).
+
+        Sert au pied de la liste de resultats. Les couches jumelles partagent
+        leur index : leurs valeurs ne sont comptees qu'une fois.
+        """
+        seen, values = set(), 0
+        for data in self._index.values():
+            key = data.get('key') or id(data['fields'])
+            if key in seen:
+                continue
+            seen.add(key)
+            for col in data['fields'].values():
+                values += max(0, len(col['starts']) - 1)
+        indexed = set(self._index)
+        return len(indexed), values, len(indexed | set(self.missing_layers()))
+
+    # ---- Suivi des modifications enregistrees ----
+
+    def watch_layer(self, layer):
+        """Ecoute les enregistrements d'une couche vecteur.
+
+        Une valeur corrigee puis enregistree ne change ni la source, ni le
+        nombre d'entites, ni les champs : sans ce suivi, l'index restait
+        perime et le bouton vert. Les signaux portent l'id de la couche, ce
+        qui permet de les brancher sur une methode liee (deconnectee d'office
+        par Qt a la destruction du gestionnaire).
+        """
+        if not isinstance(layer, QgsVectorLayer) or layer.id() in self._watched:
+            return
+        for signal in (layer.committedAttributeValuesChanges,
+                       layer.committedFeaturesAdded,
+                       layer.committedFeaturesRemoved,
+                       layer.committedAttributesAdded,
+                       layer.committedAttributesDeleted):
+            signal.connect(self._on_layer_committed)
+        self._watched.add(layer.id())
+
+    def unwatch_all(self):
+        """Debranche le suivi (dechargement du plugin)."""
+        project = QgsProject.instance()
+        for layer_id in list(self._watched):
+            layer = project.mapLayer(layer_id)
+            if layer is None:
+                continue
+            for signal in (layer.committedAttributeValuesChanges,
+                           layer.committedFeaturesAdded,
+                           layer.committedFeaturesRemoved,
+                           layer.committedAttributesAdded,
+                           layer.committedAttributesDeleted):
+                try:
+                    signal.disconnect(self._on_layer_committed)
+                except (TypeError, RuntimeError):
+                    pass
+        self._watched = set()
+
+    def _on_layer_committed(self, layer_id, *_args):
+        """Des modifications viennent d'etre enregistrees dans une couche.
+
+        L'index de la couche (et de ses jumelles, qui partagent la meme cle)
+        est marque perime ; son fichier de cache est supprime pour que la
+        prochaine synchronisation reparcoure vraiment les donnees, meme sur
+        une source sans fichier (PostGIS, couche memoire) dont l'empreinte ne
+        bouge pas.
+        """
+        entry = self._index.get(layer_id)
+        key = entry.get('key') if entry else self._keys.get(layer_id)
+        self._stale.add(layer_id)
+        if key is not None:
+            for lid, data in self._index.items():
+                if data.get('key') == key:
+                    self._stale.add(lid)
+            self._by_key.pop(key, None)
+            cache_dir = self._cache_dir()
+            if cache_dir:
+                path = os.path.join(cache_dir, _key_file(key))
+                try:
+                    if os.path.isfile(path):
+                        self._cache_bytes -= os.path.getsize(path)
+                        os.remove(path)
+                except OSError:
+                    pass
+        if not self.is_running():
+            self.refresh_sync_state()
+
+    def apply_layers_config(self):
+        """Applique tout de suite une exclusion de couche.
+
+        Une couche decochee dans la configuration ne doit plus repondre : elle
+        sort de l'index en memoire sans attendre de synchronisation (avant,
+        elle restait cherchable indefiniment).
+        """
+        for layer_id in list(self._index):
+            if self._layers_config.get(layer_id, {}).get('excluded', False):
+                del self._index[layer_id]
+                self._stale.discard(layer_id)
 
     def refresh_sync_state(self):
         """Recalcule l'etat de synchronisation a partir du projet courant.
@@ -619,10 +1027,17 @@ class IndexManager(QObject):
             self._index_all_types = bool(index_all_types)
         if search_all_layers is not None:
             self._search_all_layers = bool(search_all_layers)
+        self.apply_layers_config()
 
     def is_running(self):
-        """Une passe d'indexation est-elle en cours ?"""
-        return bool(self._pending or self._queue or self._current_iterator)
+        """Une passe d'indexation est-elle en cours ?
+
+        Le minuteur compte aussi : entre la derniere couche et _finalize(), il
+        reste un tick pendant lequel files et iterateur sont deja vides.
+        """
+        return bool(self._pending or self._queue or self._current_iterator
+                    or self._columnize_pending is not None
+                    or self._timer.isActive())
 
     def _visible_layer_ids(self):
         """Ids des couches cochees dans l'arbre des couches.
@@ -737,6 +1152,7 @@ class IndexManager(QObject):
             self._set_sync_state(self.SYNC_COMPLETE)
             self.indexing_finished.emit()
             return
+        self._prefetch_stamps(self._pending)
 
         self._set_sync_state(self.SYNC_SYNCING)
         self.indexing_started.emit()
@@ -758,9 +1174,22 @@ class IndexManager(QObject):
             self._manifest = self._load_manifest()
             return True
 
-        layer_id = self._pending.pop(0)
+        layer_id = self._pending[0]
         layer = QgsProject.instance().mapLayer(layer_id)
         if layer is not None:
+            future = self._stamps.get(layer.source())
+            if future is not None and not future.done():
+                # Dates de fichiers encore en lecture sur le reseau : on
+                # repassera au tick suivant plutot que de bloquer QGIS.
+                self._stamp_wait = True
+                return True
+        self._pending.pop(0)
+        if layer is not None and layer_id in self._stale:
+            # Donnees modifiees depuis l'indexation : ni la memoire ni le
+            # cache ne sont fiables, on reparcourt.
+            self._compute_key(layer_id, layer)
+            self._queue.append(layer_id)
+        elif layer is not None:
             key = self._compute_key(layer_id, layer)
             fields = self._by_key.get(key)
 
@@ -781,10 +1210,40 @@ class IndexManager(QObject):
 
         return bool(self._pending)
 
+    def _prefetch_stamps(self, layer_ids):
+        """Lance, en parallele et hors du fil principal, la lecture des dates
+        et tailles des fichiers des couches (os.stat relache le GIL). Une
+        source partagee par plusieurs couches n'est lue qu'une fois."""
+        self._stamps = {}
+        project = QgsProject.instance()
+        sources = set()
+        for layer_id in layer_ids:
+            layer = project.mapLayer(layer_id)
+            if layer is not None:
+                sources.add(layer.source())
+        if not sources:
+            return
+        if self._stamper is None:
+            self._stamper = ThreadPoolExecutor(
+                max_workers=8, thread_name_prefix='MagicSearchStat')
+        for source in sources:
+            self._stamps[source] = self._stamper.submit(_source_stamp, source)
+
+    def _stamp_of(self, layer):
+        """Tampon deja lu en fond pour la source de la couche, sinon None
+        (il est alors calcule sur place)."""
+        future = self._stamps.get(layer.source())
+        if future is not None and future.done():
+            try:
+                return future.result()
+            except Exception:
+                return ''
+        return None
+
     def _compute_key(self, layer_id, layer):
         """Empreinte + exclusions configurees, memorisee pour la couche."""
         try:
-            fingerprint = _layer_fingerprint(layer)
+            fingerprint = _layer_fingerprint(layer, self._stamp_of(layer))
         except Exception:
             self._keys[layer_id] = None
             return None
@@ -803,7 +1262,9 @@ class IndexManager(QObject):
             'name': layer_name,
             'key': key,
             'fields': fields,
+            'cfg': self._layer_cfg(layer_id),
         }
+        self._stale.discard(layer_id)
         if self._manifest is not None and key is not None:
             self._manifest[layer_id] = {
                 'file': _key_file(key),
@@ -815,7 +1276,15 @@ class IndexManager(QObject):
 
     def _process_next(self):
         """Traite une etape de triage, ou un lot d'entites de la couche actuelle."""
+        self._stamp_wait = False
         if self._triage_next():
+            # En attente des dates de fichiers : petit delai pour ne pas
+            # tourner a vide.
+            self._timer.start(20 if self._stamp_wait else 0)
+            return
+
+        if self._columnize_pending is not None:
+            self._columnize_step()
             self._timer.start(0)
             return
 
@@ -845,7 +1314,8 @@ class IndexManager(QObject):
 
             config = self._layers_config.get(layer_id, {})
             excluded_fields = config.get('excluded_fields', [])
-            self._current_fields, self._watched_fields = _classify_fields(
+            (self._current_fields, self._watched_fields,
+             self._date_fields) = _classify_fields(
                 layer, excluded_fields, self._index_all_types)
 
             if not self._current_fields:
@@ -879,10 +1349,14 @@ class IndexManager(QObject):
                        .setSubsetOfAttributes(self._current_fields,
                                               layer.fields()))
             self._current_iterator = layer.getFeatures(request)
+            fields = layer.fields()
             self._current_layer_data = {
                 'name': layer.name(),
                 'key': key,
-                'fields': {}
+                'fields': {},
+                # positions des champs dans attributes() (cf. _index_batch)
+                'idx': {name: fields.indexOf(name) for name in self._current_fields},
+                'memo': {},
             }
             QgsMessageLog.logMessage(f"Magic Search: Debut indexation {layer.name()}", TAG, Qgis.MessageLevel.Info)
 
@@ -907,7 +1381,8 @@ class IndexManager(QObject):
         t_read = perf_counter()
 
         _index_batch(feats, self._current_fields, self._current_layer_data,
-                     self._watched_fields, self._current_stats)
+                     self._watched_fields, self._current_stats,
+                     self._date_fields)
         t_end = perf_counter()
 
         self._current_count += len(feats)
@@ -936,41 +1411,19 @@ class IndexManager(QObject):
             dropped.clear()
 
         if done:
-            layer_id = self._current_layer_id
-            data = self._current_layer_data
             # Le nombre de valeurs distinctes se lit sur les dicts, avant que
             # _to_columnar ne les remplace par des colonnes.
-            uniques = {f: len(v) for f, v in data['fields'].items()}
-            # Le dict d'indexation a fait son office (dedoublonnage) : on le
-            # fige en colonnes et on laisse le ramasse-miettes reprendre la
-            # centaine de Mo de petits objets qu'il occupait.
-            t_cols = time.perf_counter()
-            data['fields'] = _to_columnar(data['fields'])
-            data.pop('dropped', None)
-            key = data.get('key')
-            if key is not None:
-                self._by_key[key] = data['fields']
-            self._index[layer_id] = data
-            t_cache = time.perf_counter()
-            self._save_key_cache(key, data)
-            t_done = time.perf_counter()
-            # Le rapport est emis ici, et non avant, pour pouvoir imputer la
-            # mise en colonnes et la compression du cache : sur une grosse
-            # couche elles pesent plus que l'indexation elle-meme.
-            self._log_layer_report(data['name'], uniques,
-                                   t_cache - t_cols, t_done - t_cache)
-            if self._manifest is not None and key is not None:
-                self._manifest[layer_id] = {
-                    'file': _key_file(key),
-                    'key': key,
-                    'name': data['name'],
-                }
-                self._write_manifest()
-            self.layer_ready.emit(layer_id)
+            data = self._current_layer_data
+            # Aides au parcours, inutiles une fois la couche lue
+            data.pop('memo', None)
+            data.pop('idx', None)
+            self._current_uniques = {f: len(v) for f, v in data['fields'].items()}
+            # La lecture est finie ; la mise en colonnes se fait champ par
+            # champ dans les ticks suivants (cf. _columnize_step).
             self._current_iterator = None
-            self._current_layer_id = None
-            self._current_layer_data = None
-            self._current_count = 0
+            self._columnize_pending = list(data['fields'].keys())
+            self._columnize_s = 0.0
+            data['columns'] = {}
         else:
             # Total courant de la couche : le nombre d'entites traitees par
             # tick varie desormais avec le budget de temps, l'afficher ne
@@ -981,6 +1434,60 @@ class IndexManager(QObject):
             )
 
         self._timer.start(0)
+
+    def _columnize_step(self):
+        """Fige en colonnes les champs de la couche lue, pendant BUDGET_MS.
+
+        Le dict d'indexation a fait son office (dedoublonnage) : on le
+        convertit en colonnes et on laisse le ramasse-miettes reprendre la
+        centaine de Mo de petits objets qu'il occupait. Fait d'un bloc, cela
+        gelait l'interface (1,1 s sur 200 000 entites) ; champ par champ, le
+        tick le plus long est celui du plus gros champ.
+        """
+        data = self._current_layer_data
+        perf_counter = time.perf_counter
+        t0 = perf_counter()
+        while self._columnize_pending:
+            fname = self._columnize_pending.pop(0)
+            data['columns'].update(_to_columnar({fname: data['fields'].pop(fname)}))
+            if perf_counter() - t0 > BUDGET_S:
+                break
+        self._columnize_s += perf_counter() - t0
+        if not self._columnize_pending:
+            self._columnize_pending = None
+            self._finish_layer()
+
+    def _finish_layer(self):
+        """La couche courante est indexee : la publier, l'ecrire en cache."""
+        layer_id = self._current_layer_id
+        data = self._current_layer_data
+        data['fields'] = data.pop('columns')
+        data.pop('dropped', None)
+        data['cfg'] = self._layer_cfg(layer_id)
+        key = data.get('key')
+        if key is not None:
+            self._by_key[key] = data['fields']
+        self._index[layer_id] = data
+        self._stale.discard(layer_id)
+        t_cache = time.perf_counter()
+        self._save_key_cache(key, data)
+        # Le rapport est emis ici, et non avant, pour pouvoir imputer la mise
+        # en colonnes et la preparation du cache (la compression, elle, se
+        # fait hors du fil principal).
+        self._log_layer_report(data['name'], self._current_uniques,
+                               self._columnize_s, time.perf_counter() - t_cache)
+        if self._manifest is not None and key is not None:
+            self._manifest[layer_id] = {
+                'file': _key_file(key),
+                'key': key,
+                'name': data['name'],
+            }
+            self._write_manifest()
+        self.layer_ready.emit(layer_id)
+        self._current_layer_id = None
+        self._current_layer_data = None
+        self._current_count = 0
+        self._current_uniques = {}
 
     def _log_path(self):
         """Chemin du journal, ou None si le projet n'est pas enregistre."""
@@ -1104,11 +1611,27 @@ class IndexManager(QObject):
         self._current_iterator = None
         self._current_layer_id = None
         self._current_layer_data = None
+        self._columnize_pending = None
         self._current_count = 0
         self._current_stats = {}
         self._current_t0 = None
         # Une passe interrompue laisse un index partiel : l'etat le dit.
         self.refresh_sync_state()
+
+    def shutdown(self):
+        """Dechargement du plugin : arret de la passe et du suivi des couches.
+
+        Une ecriture de cache deja lancee se termine seule (elle ne touche
+        qu'a son fichier) ; on n'attend pas, pour ne pas bloquer QGIS.
+        """
+        self.stop()
+        self.unwatch_all()
+        if self._writer is not None:
+            self._writer.shutdown(wait=False)
+            self._writer = None
+        if self._stamper is not None:
+            self._stamper.shutdown(wait=False)
+            self._stamper = None
 
     def search(self, query, max_per_field=5):
         """Recherche dans l'index. Retourne les resultats groupes,
@@ -1130,13 +1653,25 @@ class IndexManager(QObject):
         # c'est ce que l'utilisateur a sous les yeux. L'index, lui, reste
         # complet, donc recocher une couche la rend cherchable aussitot.
         visible_ids = None if self._search_all_layers else self._visible_layer_ids()
+        project = QgsProject.instance()
 
         for layer_id, layer_data in self._index.items():
             if visible_ids is not None and layer_id not in visible_ids:
                 continue
-            layer_name = layer_data['name']
+            conf = self._layers_config.get(layer_id, {})
+            if conf.get('excluded', False):
+                continue
+            # Champs decoches depuis l'indexation : ils ne repondent plus,
+            # sans attendre la synchronisation qui les retirera de l'index.
+            excluded_fields = conf.get('excluded_fields', ())
+            # Le nom affiche suit la couche (renommage) ; celui de l'index
+            # n'est qu'un repli.
+            layer = getattr(project, 'mapLayer', lambda _lid: None)(layer_id)
+            layer_name = layer.name() if layer is not None else layer_data['name']
             layer_score = _layer_name_score(layer_name, q)
             for field_name, col in layer_data['fields'].items():
+                if field_name in excluded_fields:
+                    continue
                 hits, total = _search_column(col, q, max_per_field)
                 if not hits:
                     continue
@@ -1188,6 +1723,8 @@ class IndexManager(QObject):
 
     def remove_layer(self, layer_id):
         self._skipped.discard(layer_id)
+        self._stale.discard(layer_id)
+        self._watched.discard(layer_id)
         if layer_id in self._index:
             del self._index[layer_id]
         if layer_id in self._queue:
@@ -1201,6 +1738,7 @@ class IndexManager(QObject):
             self._current_iterator = None
             self._current_layer_id = None
             self._current_layer_data = None
+            self._columnize_pending = None
             self._current_fields = []
             self._current_count = 0
             self._current_stats = {}
@@ -1284,34 +1822,30 @@ class IndexManager(QObject):
             self._manifest = self._load_manifest()
 
         path = os.path.join(cache_dir, _key_file(key))
-        if os.path.exists(path):
+        if os.path.exists(path) or path in self._writes:
             return
 
         try:
             if not os.path.isdir(cache_dir):
                 os.makedirs(cache_dir)
-
-            compressed = _compress(_pack_index(layer_data.get('name'),
-                                                layer_data['fields']))
-
-            projected = self._cache_bytes + len(compressed)
-            if projected > self._max_cache_mb * 1024 * 1024:
-                QgsMessageLog.logMessage(
-                    f"{TAG}: plafond de cache atteint "
-                    f"({projected / 1048576:.1f} Mo > {self._max_cache_mb} Mo), "
-                    f"index non mis en cache: {layer_data.get('name')}",
-                    TAG, Qgis.MessageLevel.Warning
-                )
-                return
-
-            with open(path, 'wb') as f:
-                f.write(compressed)
-            self._cache_bytes = projected
-
+            # La serialisation lit les colonnes : elle reste ici, sur le fil
+            # principal, seul a les modifier. Seule la compression part.
+            payload = _pack_index(layer_data.get('name'), layer_data['fields'])
         except Exception as e:
             QgsMessageLog.logMessage(
                 f"{TAG}: erreur sauvegarde cache: {e}", TAG, Qgis.MessageLevel.Warning
             )
+            return
+
+        if self._writer is None:
+            self._writer = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix='MagicSearchCache')
+        self._writes.append(path)
+        future = self._writer.submit(
+            _write_cache_file, path, payload, layer_data.get('name'),
+            self._max_cache_mb * 1024 * 1024, self._budget)
+        future.add_done_callback(lambda _f, p=path: self._writes.remove(p)
+                                 if p in self._writes else None)
 
     def _write_manifest(self):
         cache_dir = self._cache_dir()
@@ -1345,6 +1879,10 @@ class IndexManager(QObject):
                 if isinstance(entry, dict) and entry.get('file'):
                     keep.add(entry['file'])
             for name in os.listdir(cache_dir):
+                # Un .tmp est un index en cours d'ecriture par le fil de
+                # compression : n'y toucher que s'il n'y a plus d'ecriture.
+                if name.endswith('.tmp') and self._writes:
+                    continue
                 if name not in keep:
                     orphan = os.path.join(cache_dir, name)
                     if os.path.isfile(orphan):

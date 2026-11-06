@@ -2,170 +2,28 @@
 Dock Widget - Panneau ancrable natif (QDockWidget) pour Magic Search.
 Identifiant de style 'qt5' : nom historique conserve pour ne pas invalider
 les preferences enregistrees, l'interface suit la version de Qt de QGIS.
+
+Meme pilule et meme liste que la barre flottante (modele M2c, cf.
+search_widget.PillMixin), avec le logo du plugin en tete de pilule.
 Comportement dynamique : compact au repos, s'etend avec les resultats.
 """
-from qgis.PyQt.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QFrame,
-    QToolButton, QMenu
-)
-from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal
-from qgis.PyQt.QtGui import QCursor, QPixmap
-import os
+from qgis.PyQt.QtWidgets import QDockWidget, QWidget, QVBoxLayout
+from qgis.PyQt.QtCore import Qt, QTimer, QEvent, pyqtSignal
 
-from .ui_common import StayOnTopEventFilter, sync_button_style, sync_button_glyph
+from .ui_common import StayOnTopEventFilter
+from .search_widget import (PillMixin, BAR_H, COLOR_MUTED, COLOR_TEXT,
+                            LAYER_SEARCH_DEBOUNCE_MS)
 from ..core import geo_actions
-from ..core.street_view_tool import SERVICE_LABELS, COPY_COORDS
-from ..core.coord_parser import parse_coordinates, to_lonlat as coord_to_lonlat
+from ..core.coord_parser import coordinate_candidates, to_lonlat as coord_to_lonlat
 from ..i18n import tr
 
 TAG = 'Magic Search'
-VC_NAVY = '#13235b'
-VC_TURQUOISE = '#00a096'
-COLOR_HIGHLIGHT = '#ff00ff'
-
-ITEM_H = 26
-EXPAND_H = 20
-MAX_RESULTS = 15
-MAX_LIST_H = 350
-LAYER_SEARCH_DEBOUNCE_MS = 250
-
-# Couleurs de couches et actions geo (zoom/surbrillance) : voir core/geo_actions.py
-_color_for_layer = geo_actions.color_for_layer
+LIST_GAP = 8        # espace entre la pilule et la liste
+DOCK_MARGIN = 8
+TITLE_H = 25        # barre de titre du QDockWidget flottant
 
 
-class ResultItemDock(QFrame):
-    clicked = pyqtSignal(dict)
-    hovered = pyqtSignal(dict)
-    unhovered = pyqtSignal()
-
-    def __init__(self, data, font_size=11, opacity=100, parent=None):
-        super().__init__(parent)
-        self._data = data
-        self._opacity = opacity
-        self.setObjectName("ResultItemDock")
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.setMouseTracking(True)
-
-        source = data.get('source')
-        if source == 'ban':
-            tag_bg, tag_color = '#ccfbf1', '#0f766e'
-            self._border_color = VC_TURQUOISE
-        elif source == 'osm':
-            tag_bg, tag_color = '#fef3c7', '#92400e'
-            self._border_color = '#f59e0b'
-        elif source == 'coord':
-            tag_bg, tag_color = '#e0e7ff', VC_NAVY
-            self._border_color = VC_NAVY
-        else:
-            layer_id = data.get('layer_id', '')
-            tag_bg, tag_color = _color_for_layer(layer_id)
-            self._border_color = tag_color
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 2, 8, 2)
-        layout.setSpacing(6)
-
-        if source in ('ban', 'osm', 'coord'):
-            txt = data.get('label', '')
-            tag_text = {'ban': 'BAN', 'osm': 'OSM'}.get(source, tr('tag_coord'))
-        else:
-            original = data.get('original', '')
-            count = len(data.get('fids', []))
-            txt = f"{original} ({count})" if count > 1 else original
-            layer_name = data.get('layer_name', '')
-            field_name = data.get('field_name', '')
-            tag_text = f"{field_name} | {layer_name}"
-
-        tag_font = max(6, font_size - 3)
-
-        self.lbl_text = QLabel(txt)
-        self.lbl_text.setStyleSheet(f"color: #1e293b; font-size: {font_size}px; border: none; background: transparent;")
-        layout.addWidget(self.lbl_text, 1)
-
-        self.lbl_tag = QLabel(tag_text)
-        self.lbl_tag.setStyleSheet(f"""
-            background: {tag_bg}; color: {tag_color}; border-radius: 3px;
-            padding: 1px 4px; font-weight: bold; font-size: {tag_font}px;
-        """)
-        layout.addWidget(self.lbl_tag, 0)
-
-        self._apply_style()
-
-    def _apply_style(self):
-        alpha = int(255 * (self._opacity / 100.0))
-        self.setStyleSheet(f"""
-            #ResultItemDock {{
-                background: rgba(255, 255, 255, {alpha});
-                border-left: 3px solid {self._border_color};
-                border-bottom: 1px solid #e2e8f0;
-            }}
-            #ResultItemDock:hover {{
-                background: rgba(240, 253, 250, {alpha});
-            }}
-        """)
-
-    def set_opacity(self, opacity):
-        self._opacity = opacity
-        self._apply_style()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self._data)
-        super().mousePressEvent(event)
-
-    def enterEvent(self, event):
-        self.hovered.emit(self._data)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.unhovered.emit()
-        super().leaveEvent(event)
-
-
-class ExpandItemDock(QFrame):
-    clicked = pyqtSignal(dict)
-
-    def __init__(self, data, remaining, font_size=9, opacity=100, parent=None):
-        super().__init__(parent)
-        self._data = data
-        self._opacity = opacity
-        self.setObjectName("ExpandItemDock")
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-
-        layer_id = data.get('layer_id', '')
-        _, self._tag_color = _color_for_layer(layer_id)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 2, 8, 2)
-
-        self.lbl = QLabel(tr('expand_more', count=remaining))
-        self.lbl.setStyleSheet(f"color: {VC_TURQUOISE}; font-style: italic; font-size: {font_size}px; border: none; background: transparent;")
-        layout.addWidget(self.lbl)
-
-        self._apply_style()
-
-    def _apply_style(self):
-        alpha = int(255 * (self._opacity / 100.0))
-        self.setStyleSheet(f"""
-            #ExpandItemDock {{
-                background: rgba(255, 255, 255, {alpha});
-                border-left: 3px solid {self._tag_color};
-                border-bottom: 1px solid #e2e8f0;
-            }}
-            #ExpandItemDock:hover {{ background: rgba(240, 253, 250, {alpha}); }}
-        """)
-
-    def set_opacity(self, opacity):
-        self._opacity = opacity
-        self._apply_style()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self._data)
-        super().mousePressEvent(event)
-
-
-class MagicSearchDockWidget(QDockWidget):
+class MagicSearchDockWidget(PillMixin, QDockWidget):
 
     config_requested = pyqtSignal()
     sync_requested = pyqtSignal()
@@ -173,6 +31,7 @@ class MagicSearchDockWidget(QDockWidget):
     street_view_requested = pyqtSignal(str)
     add_favorite_requested = pyqtSignal()
     remove_favorite_requested = pyqtSignal(int)
+    scope_changed = pyqtSignal(bool)   # True = toutes les couches
 
     def __init__(self, iface, index_manager, ban_provider, osm_provider, layer_provider, parent=None):
         super().__init__("Magic Search", parent)
@@ -189,145 +48,30 @@ class MagicSearchDockWidget(QDockWidget):
         self._ban_results = []
         self._osm_results = []
         self._layer_results = []
-        self._coord_result = None
+        self._coord_results = []
         self._rubber_band = None
         self._opacity = 100
-        self._widgets = []
 
         self.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
         self.setFloating(True)
-        self.setMinimumWidth(350)
+        self.setMinimumWidth(380)
         self.setMinimumHeight(70)
 
         main_widget = QWidget()
         main_widget.setObjectName("MSDockMain")
         self._main_widget = main_widget
-
         self._main_layout = QVBoxLayout(main_widget)
-        self._main_layout.setContentsMargins(8, 8, 8, 8)
+        self._main_layout.setContentsMargins(DOCK_MARGIN, DOCK_MARGIN, DOCK_MARGIN, DOCK_MARGIN)
         self._main_layout.setSpacing(0)
 
-        # --- Barre de saisie ---
-        input_container = QWidget()
-        input_layout = QHBoxLayout(input_container)
-        input_layout.setContentsMargins(0, 0, 0, 0)
-        input_layout.setSpacing(4)
-
-        # Logo icon
-        icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'icon.png')
-        if os.path.exists(icon_path):
-            self._logo_label = QLabel()
-            pix = QPixmap(icon_path).scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            self._logo_label.setPixmap(pix)
-            self._logo_label.setContentsMargins(4, 0, 0, 0)
-            input_layout.addWidget(self._logo_label)
-
-        self._input = QLineEdit()
-        self._input.setPlaceholderText(tr('placeholder'))
-        self._set_input_style(muted=False)
-        self._input.textChanged.connect(self._on_text_changed)
-        input_layout.addWidget(self._input)
-
-        self._btn_clear = QPushButton('\u2715')
-        self._btn_clear.setFixedSize(24, 24)
-        self._btn_clear.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._btn_clear.setToolTip(tr('tip_clear'))
-        self._btn_clear.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: none;
-                font-size: 12px; border-radius: 12px; color: #94a3b8;
-            }}
-            QPushButton:hover {{ background: #f1f5f9; color: {VC_NAVY}; }}
-        """)
-        self._btn_clear.clicked.connect(lambda: self._input.clear())
-        self._btn_clear.hide()
-        input_layout.addWidget(self._btn_clear)
-
-        # Bouton geocodage inverse (adresse BAN la plus proche au clic)
-        self._btn_reverse = QPushButton('?')
-        self._btn_reverse.setFixedSize(24, 24)
-        self._btn_reverse.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._btn_reverse.setCheckable(True)
-        self._btn_reverse.setToolTip(tr('tip_reverse_geocode'))
-        self._update_reverse_style()
-        self._btn_reverse.toggled.connect(self.reverse_toggled.emit)
-        input_layout.addWidget(self._btn_reverse)
-
-        # Bouton vue de rue (menu deroulant : Google / Mapillary / Panoramax / Bing)
-        self._btn_street = QToolButton()
-        self._btn_street.setText('◎')
-        self._btn_street.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._btn_street.setFixedSize(24, 24)
-        self._btn_street.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._btn_street.setToolTip(tr('tip_street_view'))
-        self._update_street_style()
-        street_menu = QMenu(self._btn_street)
-        for service_key in ('google', 'mapillary', 'panoramax', 'bing'):
-            act = street_menu.addAction(SERVICE_LABELS[service_key])
-            act.triggered.connect(
-                lambda checked=False, s=service_key: self.street_view_requested.emit(s)
-            )
-        street_menu.addSeparator()
-        act_copy = street_menu.addAction(tr('menu_copy_coords'))
-        act_copy.triggered.connect(
-            lambda checked=False: self.street_view_requested.emit(COPY_COORDS)
-        )
-        self._btn_street.setMenu(street_menu)
-        input_layout.addWidget(self._btn_street)
-
-        # Menu 'plus d'outils' : favoris / historique, regroupes derriere un
-        # seul bouton pour garder la barre compacte (la vue de rue garde son
-        # propre bouton "◎").
-        self._favorites = []
-        self._search_history = []
-        self._btn_more = QToolButton()
-        self._btn_more.setText('⋮')
-        self._btn_more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._btn_more.setFixedSize(24, 24)
-        self._btn_more.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._btn_more.setToolTip(tr('tip_more'))
-        self._update_more_style()
-        self._more_menu = QMenu(self._btn_more)
-        self._more_menu.aboutToShow.connect(self._rebuild_more_menu)
-        self._btn_more.setMenu(self._more_menu)
-        input_layout.addWidget(self._btn_more)
-
-        # Bouton synchronisation
-        self._btn_sync = QPushButton()
-        self._btn_sync.setFixedSize(24, 24)
-        self._btn_sync.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._btn_sync.setToolTip(tr('tip_sync_never'))
-        self._btn_sync.clicked.connect(self.sync_requested.emit)
-        input_layout.addWidget(self._btn_sync)
-
-        # Etat initial + connexion au signal
-        self._update_sync_style(self._index_manager.sync_state)
-        self._index_manager.sync_state_changed.connect(self._update_sync_style)
-
-        self._btn_config = QPushButton('\u2699')
-        self._btn_config.setFixedSize(24, 24)
-        self._btn_config.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._btn_config.setToolTip(tr('tip_config'))
-        self._btn_config.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: none;
-                font-size: 14px; border-radius: 12px;
-            }}
-            QPushButton:hover {{ background: #f1f5f9; color: {VC_NAVY}; }}
-        """)
-        self._btn_config.clicked.connect(self.config_requested.emit)
-        input_layout.addWidget(self._btn_config)
-
-        self._main_layout.addWidget(input_container)
-
-        # --- Zone de resultats (dynamique, pas de ScrollArea) ---
-        self._results_container = QWidget()
-        self._results_container.setObjectName("MSDockResults")
-        self._results_layout = QVBoxLayout(self._results_container)
-        self._results_layout.setContentsMargins(0, 0, 0, 0)
-        self._results_layout.setSpacing(0)
-        self._results_container.hide()
-        self._main_layout.addWidget(self._results_container)
+        # Pilule (avec le logo) + liste, communes a la barre flottante
+        self._build_pill(logo=True)
+        self._main_layout.addWidget(self._bar)
+        self._main_layout.addSpacing(LIST_GAP)
+        self._main_layout.addWidget(self._dropdown)
+        self._main_layout.addStretch(1)
+        self._update_sync_style(self._sync_state)
+        self._update_styles()
 
         self.setWidget(main_widget)
 
@@ -348,94 +92,23 @@ class MagicSearchDockWidget(QDockWidget):
         self._layer_search_debounce.setInterval(LAYER_SEARCH_DEBOUNCE_MS)
         self._layer_search_debounce.timeout.connect(self._do_layer_search)
 
-    def _update_street_style(self):
-        self._btn_street.setStyleSheet(f"""
-            QToolButton {{
-                background: transparent; border: none;
-                font-size: 13px; color: #64748b; border-radius: 12px;
-            }}
-            QToolButton::menu-indicator {{ image: none; width: 0; }}
-            QToolButton:hover {{ background: #f1f5f9; color: {VC_NAVY}; }}
-        """)
+        self._adjust_dock_size()
 
-    def _update_more_style(self):
-        self._btn_more.setStyleSheet(f"""
-            QToolButton {{
-                background: transparent; border: none;
-                font-size: 14px; font-weight: bold; color: #64748b; border-radius: 12px;
-            }}
-            QToolButton::menu-indicator {{ image: none; width: 0; }}
-            QToolButton:hover {{ background: #f1f5f9; color: {VC_NAVY}; }}
-        """)
+    def eventFilter(self, obj, event):
+        # Clavier de la saisie (fleches, Entree, Echap, Tab) : cf. PillMixin
+        if obj is self._input and event.type() == QEvent.Type.KeyPress:
+            return self._on_input_key(event)
+        return super().eventFilter(obj, event)
 
-    def set_favorites(self, favorites):
-        self._favorites = favorites or []
+    # ---- Points d'accroche de PillMixin ----
 
-    def _push_history(self, text):
-        text = text.strip()
-        if not text or len(text) < 2:
-            return
-        if text in self._search_history:
-            self._search_history.remove(text)
-        self._search_history.insert(0, text)
-        self._search_history = self._search_history[:5]
+    def _close_list(self):
+        self._clear_list()
 
-    def _rebuild_more_menu(self):
-        """Reconstruit le menu ⋮ a chaque ouverture : Favoris / Recherches
-        recentes, regroupes derriere un seul bouton pour garder la barre
-        compacte (la vue de rue garde son propre bouton "◎")."""
-        self._more_menu.clear()
+    def _refresh_list(self):
+        self._update_list()
 
-        fav_menu = self._more_menu.addMenu(tr('tip_favorites'))
-        if self._favorites:
-            for fav in self._favorites:
-                act = fav_menu.addAction(fav.get('label', ''))
-                act.triggered.connect(lambda checked=False, f=fav: self._zoom_to_favorite(f))
-            fav_menu.addSeparator()
-        else:
-            act = fav_menu.addAction(tr('favorites_empty'))
-            act.setEnabled(False)
-            fav_menu.addSeparator()
-        act_add = fav_menu.addAction(tr('menu_add_favorite'))
-        act_add.triggered.connect(lambda checked=False: self.add_favorite_requested.emit())
-        if self._favorites:
-            remove_menu = fav_menu.addMenu(tr('menu_remove_favorite'))
-            for idx, fav in enumerate(self._favorites):
-                act = remove_menu.addAction(fav.get('label', ''))
-                act.triggered.connect(
-                    lambda checked=False, i=idx: self.remove_favorite_requested.emit(i)
-                )
-
-        hist_menu = self._more_menu.addMenu(tr('tip_history'))
-        if self._search_history:
-            for query in self._search_history:
-                act = hist_menu.addAction(query)
-                act.triggered.connect(lambda checked=False, q=query: self._input.setText(q))
-        else:
-            act = hist_menu.addAction(tr('history_empty'))
-            act.setEnabled(False)
-
-    def _zoom_to_favorite(self, fav):
-        self._clear_rubber_band()
-        point = geo_actions.zoom_to_point(self._iface, fav['lon'], fav['lat'])
-        self._rubber_band = geo_actions.make_point_rubber(self._iface.mapCanvas(), point)
-
-    def _update_reverse_style(self):
-        self._btn_reverse.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: none;
-                font-size: 13px; font-weight: bold; color: #64748b; border-radius: 12px;
-            }}
-            QPushButton:hover {{ background: #f1f5f9; color: {VC_NAVY}; }}
-            QPushButton:checked {{ background: {VC_TURQUOISE}; color: white; }}
-        """)
-
-    def set_reverse_active(self, active):
-        """Synchronise le bouton "?" avec l'etat reel de l'outil de carte
-        (ex: decoche si l'utilisateur bascule vers un autre outil QGIS)."""
-        self._btn_reverse.blockSignals(True)
-        self._btn_reverse.setChecked(active)
-        self._btn_reverse.blockSignals(False)
+    # ---- Saisie ----
 
     def show_reverse_address(self, label):
         """Affiche l'adresse trouvee par l'outil "?" dans le champ de recherche,
@@ -460,9 +133,8 @@ class MagicSearchDockWidget(QDockWidget):
     def set_opacity(self, opacity):
         self._opacity = opacity
         self._update_styles()
-        for w in self._widgets:
-            if hasattr(w, 'set_opacity'):
-                w.set_opacity(self._opacity)
+        self._update_bar_style()
+        self._dropdown.set_opacity(opacity)
 
     def _update_styles(self):
         alpha = int(255 * (self._opacity / 100.0))
@@ -480,21 +152,20 @@ class MagicSearchDockWidget(QDockWidget):
         self._index_debounce.stop()
         text = self._input.text()
         if text and len(text) >= 2:
-            self._layer_provider.search(text)
+            self._layer_provider.search(text, max_per_field=self._per_field())
 
     def _set_input_style(self, muted):
-        color = '#94a3b8' if muted else '#334155'
+        color = COLOR_MUTED if muted else COLOR_TEXT
         style = 'italic' if muted else 'normal'
         self._input.setStyleSheet(f"""
             QLineEdit {{
-                background: white; border: 1px solid #cbd5e1;
-                border-radius: 6px; padding: 8px 12px;
-                font-size: 12px; font-style: {style}; color: {color};
+                border: none; background: transparent;
+                font-size: 12px; font-style: {style}; color: {color}; padding: 8px 0;
             }}
-            QLineEdit:focus {{ border: 1px solid #00a096; }}
         """)
 
     def _on_text_changed(self, text):
+        self._show_all = False
         self._set_input_style(muted=False)
         self._btn_clear.setVisible(bool(text))
         if not text or len(text) < 2:
@@ -503,26 +174,30 @@ class MagicSearchDockWidget(QDockWidget):
             self._ban_results = []
             self._osm_results = []
             self._layer_results = []
-            self._coord_result = None
+            self._coord_results = []
             self._ban_provider.cancel()
             self._osm_provider.cancel()
             return
 
-        coord = parse_coordinates(text)
-        if coord:
-            lon, lat = coord_to_lonlat(coord)
-            coord['lon'], coord['lat'] = lon, lat
-            self._layer_search_debounce.stop()
+        coords = coordinate_candidates(
+            text, near=geo_actions.canvas_center_lonlat(self._iface))
+        if coords:
+            for coord in coords:
+                coord['lon'], coord['lat'] = coord_to_lonlat(coord)
+            # Une paire de nombres n'est pas une adresse : pas de geocodeur.
+            # Les couches, elles, sont toujours interrogees (une valeur
+            # metier peut ressembler a une coordonnee).
             self._ban_provider.cancel()
             self._osm_provider.cancel()
             self._ban_results = []
             self._osm_results = []
             self._layer_results = []
-            self._coord_result = coord
+            self._coord_results = coords
             self._update_list()
+            self._layer_search_debounce.start()
             return
 
-        self._coord_result = None
+        self._coord_results = []
         self._ban_provider.search(text)
         self._osm_provider.search(text)
         self._layer_search_debounce.start()
@@ -530,7 +205,7 @@ class MagicSearchDockWidget(QDockWidget):
     def _do_layer_search(self):
         text = self._input.text()
         if text and len(text) >= 2:
-            self._layer_provider.search(text)
+            self._layer_provider.search(text, max_per_field=self._per_field())
 
     def _on_ban_results(self, results):
         self._ban_results = results
@@ -545,161 +220,36 @@ class MagicSearchDockWidget(QDockWidget):
         self._update_list()
 
     # ========================================
-    # Construction dynamique des resultats
+    # Liste de resultats
     # ========================================
 
-    def _count_items(self):
-        """Compte le nombre total d'items a afficher."""
-        n = len(self._ban_results) + len(self._osm_results) + (1 if self._coord_result else 0)
-        remaining_slots = MAX_RESULTS - min(n, MAX_RESULTS)
-        for group in self._layer_results:
-            if remaining_slots <= 0:
-                break
-            matches = min(len(group.get('matches', [])), remaining_slots)
-            n += matches
-            remaining_slots -= matches
-            rem = group.get('total_matches', 0) - len(group.get('matches', []))
-            if rem > 0 and remaining_slots > 0:
-                n += 1
-                remaining_slots -= 1
-        return max(n, 1)
-
     def _update_list(self):
-        self._clear_list()
-        shown = 0
-
-        item_count = self._count_items()
-        total_h_est = item_count * ITEM_H
-        usable_h = min(total_h_est, MAX_LIST_H)
-        item_h = usable_h / item_count if item_count > 0 else ITEM_H
-        font_size = max(7, min(11, int(item_h * 0.45)))
-        expand_font = max(5, font_size - 2)
-
-        # --- Coordonnees ---
-        if self._coord_result:
-            item_data = {**self._coord_result, 'source': 'coord'}
-            w = ResultItemDock(item_data, font_size=font_size, opacity=self._opacity)
-            w.clicked.connect(self._on_result_clicked)
-            w.hovered.connect(self._on_result_hovered)
-            w.unhovered.connect(self._clear_rubber_band)
-            self._results_layout.addWidget(w)
-            self._widgets.append(w)
-            shown += 1
-
-        # --- BAN ---
-        for r in self._ban_results:
-            if shown >= MAX_RESULTS:
-                break
-            item_data = {**r, 'source': 'ban'}
-            w = ResultItemDock(item_data, font_size=font_size, opacity=self._opacity)
-            w.clicked.connect(self._on_result_clicked)
-            w.hovered.connect(self._on_result_hovered)
-            w.unhovered.connect(self._clear_rubber_band)
-            self._results_layout.addWidget(w)
-            self._widgets.append(w)
-            shown += 1
-
-        # --- OSM ---
-        for r in self._osm_results:
-            if shown >= MAX_RESULTS:
-                break
-            item_data = {**r, 'source': 'osm'}
-            w = ResultItemDock(item_data, font_size=font_size, opacity=self._opacity)
-            w.clicked.connect(self._on_result_clicked)
-            w.hovered.connect(self._on_result_hovered)
-            w.unhovered.connect(self._clear_rubber_band)
-            self._results_layout.addWidget(w)
-            self._widgets.append(w)
-            shown += 1
-
-        # --- Couches ---
-        for group in self._layer_results:
-            if shown >= MAX_RESULTS:
-                break
-            layer_id = group.get('layer_id', '')
-            layer_name = group.get('layer_name', '')
-            field_name = group.get('field_name', '')
-
-            for match in group.get('matches', []):
-                if shown >= MAX_RESULTS:
-                    break
-                item_data = {
-                    **match,
-                    'source': 'layer',
-                    'layer_id': layer_id,
-                    'layer_name': layer_name,
-                    'field_name': field_name,
-                }
-                w = ResultItemDock(item_data, font_size=font_size, opacity=self._opacity)
-                w.clicked.connect(self._on_result_clicked)
-                w.hovered.connect(self._on_result_hovered)
-                w.unhovered.connect(self._clear_rubber_band)
-                self._results_layout.addWidget(w)
-                self._widgets.append(w)
-                shown += 1
-
-            if shown >= MAX_RESULTS:
-                break
-            remaining = group.get('total_matches', 0) - len(group.get('matches', []))
-            if remaining > 0:
-                all_fids = []
-                for m in group['matches']:
-                    all_fids.extend(m.get('fids', []))
-                expand_data = {
-                    'source': 'layer_group',
-                    'layer_id': layer_id,
-                    'layer_name': layer_name,
-                    'field_name': field_name,
-                    'fids': all_fids,
-                }
-                w = ExpandItemDock(expand_data, remaining, font_size=expand_font, opacity=self._opacity)
-                w.clicked.connect(self._on_result_clicked)
-                self._results_layout.addWidget(w)
-                self._widgets.append(w)
-                shown += 1
-
-        if shown == 0 and len(self._input.text()) >= 2:
-            lbl = QLabel("  " + tr('no_results'))
-            lbl.setStyleSheet("color: #94a3b8; font-size: 11px; padding: 8px; background: transparent;")
-            self._results_layout.addWidget(lbl)
-            self._widgets.append(lbl)
-            shown = 1
-
-        # Afficher/masquer + hauteur dynamique
-        if shown > 0:
-            h = min(shown * ITEM_H, MAX_LIST_H)
-            self._results_container.setMinimumHeight(h)
-            self._results_container.setMaximumHeight(h)
-            self._results_container.show()
-        else:
-            self._results_container.hide()
-
+        text = self._input.text()
+        if not text or len(text) < 2:
+            self._clear_list()
+            return
+        self._dropdown.show_results(
+            self._ban_results, self._osm_results, self._layer_results,
+            self._coord_results, query=text,
+            center=geo_actions.canvas_center_lonlat(self._iface),
+            show_all=self._show_all
+        )
+        self._refresh_footer()
         self._adjust_dock_size()
 
     def _clear_list(self):
-        for w in self._widgets:
-            self._results_layout.removeWidget(w)
-            w.setParent(None)
-            w.deleteLater()
-        self._widgets.clear()
-        self._results_container.setMinimumHeight(0)
-        self._results_container.setMaximumHeight(0)
-        self._results_container.hide()
+        self._dropdown.hide_results()
+        self._clear_rubber_band()
         self._adjust_dock_size()
 
     def _adjust_dock_size(self):
-        """Force le QDockWidget a s'adapter a son contenu."""
-        # Calculer la hauteur exacte : barre de saisie + resultats + marges
-        input_h = 50  # QLineEdit avec padding
-        margins = 16  # contentsMargins haut+bas du layout
-        title_h = 25  # barre de titre du QDockWidget
-        results_h = self._results_container.maximumHeight() if self._results_container.isVisible() else 0
-        h = input_h + results_h + margins + title_h
-
-        # Forcer la hauteur sur le widget interne ET le dock
-        self._main_widget.setFixedHeight(h - title_h)
+        """Ajuste le panneau flottant a son contenu : pilule seule au repos,
+        pilule + liste quand il y a des resultats."""
+        list_h = (LIST_GAP + self._dropdown.height()) if self._dropdown.isVisible() else LIST_GAP
+        inner = BAR_H + list_h + 2 * DOCK_MARGIN
+        self._main_widget.setFixedHeight(inner)
         if self.isFloating():
-            self.setFixedHeight(h)
+            self.setFixedHeight(inner + TITLE_H)
             # Relacher immediatement pour permettre l'agrandissement futur
             QTimer.singleShot(0, self._release_height)
 
@@ -751,23 +301,15 @@ class MagicSearchDockWidget(QDockWidget):
     def _clear_rubber_band(self):
         self._rubber_band = geo_actions.clear_rubber(self._rubber_band)
 
-    def _update_sync_style(self, state):
-        """Met a jour l'aspect du bouton sync selon l'etat (cf. search_widget :
-        pastille pleine rouge/orange tant que l'index est incomplet)."""
-        self._btn_sync.setText(sync_button_glyph(state))
-        self._btn_sync.setStyleSheet(sync_button_style(state, 12))
-        self._sync_state = state
-        self._btn_sync.setToolTip(tr(f'tip_sync_{state}') if state in
-                                  ('never', 'partial', 'syncing', 'complete') else '')
-
     def retranslate(self):
         """Rafraichit les libelles deja construits apres un changement de langue."""
         self._input.setPlaceholderText(tr('placeholder'))
         self._btn_clear.setToolTip(tr('tip_clear'))
-        self._btn_reverse.setToolTip(tr('tip_reverse_geocode'))
+        self._chip_reverse.setToolTip(tr('tip_reverse_active'))
         self._btn_street.setToolTip(tr('tip_street_view'))
+        self._act_copy_coords.setText(tr('menu_copy_coords'))
         self._btn_more.setToolTip(tr('tip_more'))
-        self._btn_config.setToolTip(tr('tip_config'))
+        self._update_scope_text()
         self._update_sync_style(self._sync_state)
         # Les resultats sont reconstruits a chaque frappe : rien a retraduire ici.
 
@@ -775,5 +317,24 @@ class MagicSearchDockWidget(QDockWidget):
         self._input.setFocus()
         self.raise_()
 
+    def _disconnect_sources(self):
+        """Coupe les signaux des objets qui survivent a ce panneau (index,
+        fournisseurs) : apres une bascule de style, il ne doit plus rien
+        recevoir."""
+        for signal, slot in (
+                (self._ban_provider.results_ready, self._on_ban_results),
+                (self._osm_provider.results_ready, self._on_osm_results),
+                (self._layer_provider.results_ready, self._on_layer_results),
+                (self._index_manager.sync_state_changed, self._update_sync_style),
+                (self._index_manager.layer_ready, self._on_index_changed),
+                (self._index_manager.indexing_finished, self._on_index_updated)):
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+
     def cleanup(self):
+        self._disconnect_sources()
+        self._index_debounce.stop()
+        self._layer_search_debounce.stop()
         self._clear_rubber_band()

@@ -228,6 +228,82 @@ TR = {
         'pt': "Coordenadas copiadas para a area de transferencia",
         'de': "Koordinaten in die Zwischenablage kopiert"},
 
+    # ---- Barre flottante (modele M2c) ----
+    'scope_checked': {
+        'fr': "Cochees", 'en': "Visible", 'es': "Visibles", 'pt': "Visiveis", 'de': "Sichtbar"},
+    'scope_all': {
+        'fr': "Toutes", 'en': "All", 'es': "Todas", 'pt': "Todas", 'de': "Alle"},
+    'tip_scope': {
+        'fr': "Perimetre de la recherche dans les couches",
+        'en': "Layer search scope",
+        'es': "Alcance de la busqueda en las capas",
+        'pt': "Ambito da pesquisa nas camadas",
+        'de': "Suchbereich in den Layern"},
+    'menu_scope_checked': {
+        'fr': "Couches cochees", 'en': "Checked layers", 'es': "Capas marcadas",
+        'pt': "Camadas marcadas", 'de': "Aktivierte Layer"},
+    'menu_scope_all': {
+        'fr': "Toutes les couches", 'en': "All layers", 'es': "Todas las capas",
+        'pt': "Todas as camadas", 'de': "Alle Layer"},
+    'menu_reverse': {
+        'fr': "Adresse au clic sur la carte", 'en': "Address at map click",
+        'es': "Direccion al hacer clic en el mapa", 'pt': "Endereco ao clicar no mapa",
+        'de': "Adresse per Klick auf die Karte"},
+    'tip_reverse_active': {
+        'fr': "Adresse au clic active - cliquer pour arreter",
+        'en': "Address at click is on - click to stop",
+        'es': "Direccion al clic activa - clic para detener",
+        'pt': "Endereco ao clique ativo - clique para parar",
+        'de': "Adresse per Klick aktiv - zum Beenden klicken"},
+    'menu_street_view': {
+        'fr': "Vue de rue", 'en': "Street view", 'es': "Vista de calle",
+        'pt': "Vista de rua", 'de': "Strassenansicht"},
+    'menu_collapse': {
+        'fr': "Replier la barre", 'en': "Collapse the bar", 'es': "Plegar la barra",
+        'pt': "Recolher a barra", 'de': "Leiste einklappen"},
+    'sub_address': {
+        'fr': "Adresse", 'en': "Address", 'es': "Direccion", 'pt': "Endereco", 'de': "Adresse"},
+    'ban_housenumber': {
+        'fr': "numero", 'en': "house number", 'es': "numero", 'pt': "numero", 'de': "Hausnummer"},
+    'ban_street': {
+        'fr': "voie", 'en': "street", 'es': "via", 'pt': "via", 'de': "Strasse"},
+    'ban_locality': {
+        'fr': "lieu-dit", 'en': "locality", 'es': "paraje", 'pt': "lugar", 'de': "Flurname"},
+    'ban_municipality': {
+        'fr': "commune", 'en': "municipality", 'es': "municipio", 'pt': "municipio", 'de': "Gemeinde"},
+    'sub_coord': {
+        'fr': "Coordonnees", 'en': "Coordinates", 'es': "Coordenadas",
+        'pt': "Coordenadas", 'de': "Koordinaten"},
+    'count_objects': {
+        'fr': "{n} obj.", 'en': "{n} feat.", 'es': "{n} obj.", 'pt': "{n} obj.", 'de': "{n} Obj."},
+    'footer_count': {
+        'fr': "{shown} sur {total}", 'en': "{shown} of {total}", 'es': "{shown} de {total}",
+        'pt': "{shown} de {total}", 'de': "{shown} von {total}"},
+    'footer_all': {
+        'fr': "Tab tout voir", 'en': "Tab show all", 'es': "Tab ver todo",
+        'pt': "Tab ver tudo", 'de': "Tab alle zeigen"},
+    'footer_less': {
+        'fr': "Tab reduire", 'en': "Tab show less", 'es': "Tab ver menos",
+        'pt': "Tab ver menos", 'de': "Tab weniger"},
+    'state_never': {
+        'fr': "Index a creer", 'en': "No index yet", 'es': "Indice por crear",
+        'pt': "Indice por criar", 'de': "Kein Index"},
+    'state_partial': {
+        'fr': "Index incomplet", 'en': "Index incomplete", 'es': "Indice incompleto",
+        'pt': "Indice incompleto", 'de': "Index unvollstandig"},
+    'state_syncing': {
+        'fr': "Indexation...", 'en': "Indexing...", 'es': "Indexando...",
+        'pt': "A indexar...", 'de': "Indizierung..."},
+    'state_complete': {
+        'fr': "Index a jour", 'en': "Index up to date", 'es': "Indice al dia",
+        'pt': "Indice atualizado", 'de': "Index aktuell"},
+    'footer_stats': {
+        'fr': "{layers} couche(s) · {values} valeurs",
+        'en': "{layers} layer(s) · {values} values",
+        'es': "{layers} capa(s) · {values} valores",
+        'pt': "{layers} camada(s) · {values} valores",
+        'de': "{layers} Layer · {values} Werte"},
+
     # ---- Etat du cache (dialogue de configuration) ----
     'cache_not_created': {
         'fr': "(pas encore cree)",

@@ -11,7 +11,7 @@ except ImportError:  # Qt5
     from qgis.PyQt.QtWidgets import QAction, QShortcut
 from qgis.PyQt.QtGui import QIcon, QKeySequence
 from qgis.PyQt.QtCore import Qt, QSettings, QTimer
-from qgis.core import QgsProject, QgsVectorLayer, QgsApplication, Qgis
+from qgis.core import QgsProject, QgsApplication, Qgis
 
 from . import i18n
 from .i18n import tr
@@ -19,6 +19,9 @@ from .core import geo_actions
 
 CONFIG_KEY = 'MagicSearch'
 SETTINGS_GROUP = 'MagicSearch'
+# Ctrl+Shift+F est deja "Zoom sur l'emprise totale" dans QGIS : deux
+# raccourcis identiques sont ambigus pour Qt, qui n'en declenche aucun.
+SHORTCUT = 'Ctrl+Alt+F'
 SUPPORTED_LANGS = i18n.LANGS
 
 # Preferences applicatives : memorisees globalement (QSettings), donc conservees
@@ -29,6 +32,23 @@ GLOBAL_KEYS = ('ui_style', 'lang', 'geocoder', 'ban_postcode',
                'index_all_types', 'search_all_layers', 'zoom_scale')
 INT_KEYS = ('reverse_radius_m', 'opacity', 'max_cache_mb', 'zoom_scale')
 BOOL_KEYS = ('index_all_types', 'search_all_layers')
+
+
+def _icone_menu_extensions(iface, titre, icon):
+    """Pose l'icone du plugin devant son entree du menu Extensions.
+
+    addPluginToMenu() cree le sous-menu sans jamais rendre le QMenu
+    accessible : on le retrouve par son titre parmi les actions du menu
+    Extensions (QGIS retire les & des libelles, on compare a l'identique).
+    """
+    if icon is None or icon.isNull():
+        return
+    cible = titre.replace('&', '')
+    for action in iface.pluginMenu().actions():
+        sous_menu = action.menu()
+        if sous_menu is not None and sous_menu.title().replace('&', '') == cible:
+            sous_menu.setIcon(icon)
+            return
 
 
 class MagicSearch:
@@ -65,6 +85,10 @@ class MagicSearch:
         self.index_manager = IndexManager()
         self.ban_provider = BanProvider()
         self.osm_provider = OsmProvider()
+        # Le BAN classe ses reponses par proximite du centre de la carte :
+        # "rue de Paris" depuis Vichy donne la rue de Paris de Vichy.
+        self.ban_provider.set_focus_provider(
+            lambda: geo_actions.canvas_center_lonlat(self.iface))
         self.layer_provider = LayerProvider(self.index_manager)
         self.ban_reverse_provider = BanReverseProvider()
         self.reverse_tool = ReverseGeocodeTool(self.iface, self.ban_reverse_provider)
@@ -95,15 +119,20 @@ class MagicSearch:
         self.action_config = QAction(tr('menu_config'), self.iface.mainWindow())
         self.action_config.triggered.connect(self._open_config)
         self.iface.addPluginToMenu('&Magic Search', self.action_config)
+        _icone_menu_extensions(self.iface, '&Magic Search', icon)
 
         self.iface.mapCanvas().mapToolSet.connect(self._on_map_tool_set)
 
         self.shortcut = QShortcut(
-            QKeySequence('Ctrl+Shift+F'),
+            QKeySequence(SHORTCUT),
             self.iface.mainWindow()
         )
         self.shortcut.activated.connect(self._focus_search)
 
+        # Suivi des enregistrements : une couche deja chargee (rechargement
+        # du plugin) doit etre suivie comme celles qui arriveront ensuite.
+        for layer in QgsProject.instance().mapLayers().values():
+            self.index_manager.watch_layer(layer)
         QgsProject.instance().layersAdded.connect(self._on_layers_added)
         QgsProject.instance().layersRemoved.connect(self._on_layers_removed)
         QgsProject.instance().readProject.connect(self._on_project_loaded)
@@ -238,7 +267,9 @@ class MagicSearch:
                 self.search_widget.street_view_requested.connect(self._activate_street_view)
                 self.search_widget.add_favorite_requested.connect(self._activate_add_favorite)
                 self.search_widget.remove_favorite_requested.connect(self._remove_favorite)
+                self.search_widget.scope_changed.connect(self._on_scope_changed)
                 self.search_widget.set_favorites(self._config.get('favorites', []))
+            self.search_widget.set_scope(self._config.get('search_all_layers', False))
             self.search_widget.setVisible(self._visible)
 
         else:  # qt5
@@ -259,7 +290,9 @@ class MagicSearch:
                 self.dock_widget.street_view_requested.connect(self._activate_street_view)
                 self.dock_widget.add_favorite_requested.connect(self._activate_add_favorite)
                 self.dock_widget.remove_favorite_requested.connect(self._remove_favorite)
+                self.dock_widget.scope_changed.connect(self._on_scope_changed)
                 self.dock_widget.set_favorites(self._config.get('favorites', []))
+            self.dock_widget.set_scope(self._config.get('search_all_layers', False))
 
             self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_widget)
             self.dock_widget.set_opacity(self._config.get('opacity', 100))
@@ -268,16 +301,16 @@ class MagicSearch:
                 self.dock_widget.setFloating(True)
                 canvas = self.iface.mapCanvas()
                 canvas_pos = canvas.mapToGlobal(canvas.rect().topLeft())
-                cx = canvas_pos.x() + canvas.width() // 2 - 200
+                cx = canvas_pos.x() + canvas.width() // 2 - 230
                 cy = canvas_pos.y() + 60
                 self.dock_widget.move(cx, cy)
-                self.dock_widget.resize(400, 70)
+                self.dock_widget.resize(460, 93)
 
             self.dock_widget.setVisible(self._visible)
 
     def unload(self):
         if self.index_manager:
-            self.index_manager.stop()
+            self.index_manager.shutdown()
 
         try:
             QgsProject.instance().layersAdded.disconnect(self._on_layers_added)
@@ -309,11 +342,18 @@ class MagicSearch:
         if self.action_toggle:
             self.iface.removeToolBarIcon(self.action_toggle)
             self.iface.removePluginMenu('&Magic Search', self.action_toggle)
+            self.action_toggle.deleteLater()
+            self.action_toggle = None
         if self.action_config:
             self.iface.removePluginMenu('&Magic Search', self.action_config)
+            self.action_config.deleteLater()
+            self.action_config = None
 
         if self.shortcut:
+            # Desactiver ne suffit pas : enfant de la fenetre principale, le
+            # raccourci survivait a chaque rechargement du plugin.
             self.shortcut.setEnabled(False)
+            self.shortcut.deleteLater()
             self.shortcut = None
 
         if self.search_widget:
@@ -322,6 +362,7 @@ class MagicSearch:
         if self.dock_widget:
             self.dock_widget.cleanup()
             self.iface.removeDockWidget(self.dock_widget)
+            self.dock_widget.deleteLater()
             self.dock_widget = None
 
     def _toggle_visibility(self, checked):
@@ -365,7 +406,12 @@ class MagicSearch:
 
     def _on_config_changed(self, config):
         old_ui = self._config.get('ui_style', 'maps')
-        self._config = config
+        # Fusion et non remplacement : le dialogue ne connait que ses propres
+        # reglages. Remplacer la config effacait les favoris du projet a
+        # chaque clic sur OK.
+        merged = dict(self._config)
+        merged.update(config)
+        self._config = merged
         self._save_config()
         self._apply_config()
         # Les exclusions viennent peut-etre de changer : l'index peut etre
@@ -405,8 +451,10 @@ class MagicSearch:
         opacity = self._config.get('opacity', 100)
         if self.search_widget:
             self.search_widget.set_opacity(opacity)
+            self.search_widget.set_scope(self._config.get('search_all_layers', False))
         if self.dock_widget:
             self.dock_widget.set_opacity(opacity)
+            self.dock_widget.set_scope(self._config.get('search_all_layers', False))
 
     def _retranslate(self):
         """Applique la langue courante aux actions QGIS et aux widgets existants."""
@@ -418,6 +466,15 @@ class MagicSearch:
             self.search_widget.retranslate()
         if self.dock_widget:
             self.dock_widget.retranslate()
+
+    def _on_scope_changed(self, search_all):
+        """Puce de perimetre de la barre : meme reglage que la case
+        "Chercher aussi dans les couches masquees" de la configuration."""
+        self._config['search_all_layers'] = bool(search_all)
+        self._save_config()
+        if self.index_manager:
+            self.index_manager.set_config(self._config.get('layers', {}),
+                                          search_all_layers=bool(search_all))
 
     def _sync_now(self):
         """Bouton de synchronisation de la barre : lance (ou relance) une passe
@@ -444,6 +501,8 @@ class MagicSearch:
         """Une couche ajoutee rend l'index incomplet : le bouton passe en
         orange, mais rien n'est indexe sans clic de l'utilisateur."""
         if self.index_manager:
+            for layer in layers:
+                self.index_manager.watch_layer(layer)
             self.index_manager.refresh_sync_state()
 
     def _on_layers_removed(self, layer_ids):

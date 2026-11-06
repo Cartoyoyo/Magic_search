@@ -84,6 +84,12 @@ class OsmProvider(QObject):
         if reply is None:
             return
 
+        if reply.error() == QNetworkReply.NetworkError.OperationCanceledError:
+            # Requete abandonnee pour une saisie plus recente : normal.
+            reply.deleteLater()
+            self._reply = None
+            return
+
         if reply.error() != QNetworkReply.NetworkError.NoError:
             QgsMessageLog.logMessage(
                 f"OSM error: {reply.error()} - {reply.errorString()}",

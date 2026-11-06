@@ -13,7 +13,7 @@
 
 [![QGIS](https://img.shields.io/badge/QGIS-3.16%20%7C%204.x-green?logo=qgis&logoColor=white)](https://qgis.org)
 [![Qt](https://img.shields.io/badge/Qt-5%20%7C%206-41cd52?logo=qt&logoColor=white)](#-qgis-3-et-qgis-4)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue)](metadata.txt)
+[![Version](https://img.shields.io/badge/version-2.2.0-blue)](metadata.txt)
 [![License](https://img.shields.io/badge/license-GPL%20v3-orange)](LICENSE)
 [![Langues](https://img.shields.io/badge/langues-FR%20%7C%20EN%20%7C%20ES%20%7C%20PT%20%7C%20DE-purple)](#-langues--languages)
 [![Dependances](https://img.shields.io/badge/dependances-aucune-lightgrey)](#-prerequis)
@@ -60,16 +60,19 @@ Le cout de cette recherche instantanee est paye une seule fois, et quand vous le
 | **Recherche adresses BAN** | Geocodage des adresses francaises via l'API officielle `api-adresse.data.gouv.fr`, avec filtre optionnel par code postal |
 | **Recherche adresses OSM** | Geocodage mondial via Nominatim (OpenStreetMap), quand le projet sort de France |
 | **Recherche dans les couches** | Recherche instantanee dans tous les champs de toutes les couches vectorielles du projet, sans ecrire une expression |
+| **Recherche par mots** | Tous les mots, dans n'importe quel ordre : `chatel step` trouve « STEP Chatel Montagne ». Tirets, apostrophes, barres, points et parentheses sont ignores, chaque mot est surligne |
 | **Recherche de coordonnees** | Saisissez `45.123, 3.456` (WGS84) ou `652461, 6862050` (Lambert 93) : le plugin reconnait le format et zoome |
-| **Geocodage inverse** | Bouton **?** : cliquez sur la carte, l'adresse BAN la plus proche (rayon configurable, 25 m par defaut) s'affiche dans le champ ; le repere reste visible |
-| **Vue de rue** | Bouton **◎** : Google Street View, Mapillary, Panoramax ou Bing Streetside s'ouvrent dans le navigateur sur le point clique — ou copie des coordonnees (WGS84 + Lambert 93) |
+| **Geocodage inverse** | Menu **⋮ → Adresse au clic sur la carte** : cliquez sur la carte, l'adresse BAN la plus proche (rayon configurable, 25 m par defaut) s'affiche dans le champ ; une puce **?** rappelle que l'outil est actif |
+| **Vue de rue** | Bouton **jumelles** : Google Street View, Mapillary, Panoramax ou Bing Streetside s'ouvrent dans le navigateur sur le point clique — ou copie des coordonnees (WGS84 + Lambert 93) |
 | **Favoris** | Enregistrez les points recurrents (un regard, une vanne, un poste) et revenez dessus en un clic |
 | **Historique** | Les 5 dernieres recherches, rappelees depuis le menu **⋮** |
 | **Apercu geometrie** | Surbrillance de l'objet au survol du resultat, zoom au clic |
+| **Clavier** | **↑ ↓** pour parcourir la liste, **Entree** pour zoomer, **Echap** pour la fermer, **Tab** pour afficher plus de resultats |
+| **Classement par distance** | Adresses et coordonnees classees par distance au centre de la carte : `rue de Paris` tape depuis Vichy donne d'abord celle de Vichy |
 | **Indexation incrementale** | Jamais bloquante : la recherche fonctionne deja sur les couches pretes pendant que les autres se chargent |
 | **Cache compresse** | Index conserve a cote du `.qgz`, avec empreinte par couche : seul ce qui a change est reconstruit |
 | **Indexation a la demande** | Rien ne part tout seul : le bouton **⟳** de la barre declenche la passe et affiche l'etat de l'index par sa couleur |
-| **Perimetre de recherche** | Option pour ne repondre que sur les couches cochees, tout en gardant les autres indexees |
+| **Perimetre de recherche** | Puce **◉ Cochees ▾** a gauche de la barre : ne repondre que sur les couches cochees, ou sur toutes, en un clic — les autres restent indexees |
 | **Echelle de zoom** | Sur un resultat ponctuel : 1:200, 1:500 ou 1:1000, au choix |
 | **2 styles d'interface** | Barre flottante posee sur le canevas, ou panneau ancrable |
 | **QGIS 3 et QGIS 4** | Un seul code, de QGIS 3.16 (Qt 5) a QGIS 4 (Qt 6) |
@@ -86,33 +89,41 @@ Le cout de cette recherche instantanee est paye une seule fois, et quand vous le
 | **Barre flottante** | Barre posee sur le canevas, deplacable et redimensionnable a la souris, opacite reglable de 10 % a 100 % | Ceux qui veulent la recherche sous les yeux sans perdre de place au bord de la fenetre |
 | **Panneau ancrable** | Panneau QGIS classique, ancre a gauche ou a droite comme les autres | Ceux qui travaillent avec une disposition de panneaux figee |
 
-Le style se change a tout moment dans la configuration ; les deux offrent exactement les memes fonctions.
+Le style se change a tout moment dans la configuration. Les deux partagent la meme pilule de recherche et la meme liste de resultats, donc exactement les memes fonctions ; le panneau affiche en plus le logo du plugin en tete de pilule.
 
 ---
 
 ## 🔎 Les boutons de la barre
 
-| Bouton | Action |
-|:---:|---|
-| **⟳** | Lance une passe d'indexation. Sa couleur dit ou en est l'index : **rouge** rien d'indexe (le glyphe devient **⚠**), **orange** incomplet, **ambre** passe en cours, **vert** a jour |
-| **?** | Active le geocodage inverse : le clic suivant sur la carte affiche l'adresse BAN la plus proche dans le champ de recherche |
-| **◎** | Menu vue de rue : choisissez Google Street View, Mapillary, Panoramax, Bing Streetside ou « Copier les coordonnees », puis cliquez sur la carte |
-| **⋮** | Menu compact regroupant **Favoris** (zoomer, ajouter, supprimer) et **Recherches recentes** |
-| **✕** | Efface le champ de recherche |
-| **⚙** | Ouvre la configuration |
+La barre est une pilule arrondie. De gauche a droite :
 
-Sur la barre flottante, ces menus deroulants reprennent la charte graphique de la barre (bordure marine arrondie, survol turquoise) plutot que le style Qt generique.
+| Element | Action |
+|:---:|---|
+| **◉ Cochees ▾** | Perimetre de la recherche dans les couches : **couches cochees** ou **toutes les couches**. Le choix est memorise, comme la case correspondante de la configuration |
+| **?** | N'apparait que lorsque l'outil d'adresse au clic est actif ; un clic l'arrete |
+| **✕** | Efface le champ de recherche |
+| pastille + **⟳** | Etat de l'index et synchronisation. Leur couleur dit ou en est l'index : **rouge** rien d'indexe (le glyphe devient **⚠**), **orange** incomplet, **ambre** passe en cours, **vert** a jour. Un clic sur **⟳** lance une passe |
+| **jumelles** | Menu vue de rue : choisissez Google Street View, Mapillary, Panoramax, Bing Streetside ou « Copier les coordonnees », puis cliquez sur la carte |
+| **⋮** | **Adresse au clic sur la carte**, **Favoris** (zoomer, ajouter, supprimer), **Recherches recentes**, **Configuration** et **Replier la barre** |
+
+Les menus deroulants reprennent la charte de la barre (coins arrondis, survol turquoise) plutot que le style Qt generique.
+
+### La liste de resultats
+
+Sous la pilule, une ligne par resultat : la valeur trouvee en gras, les mots cherches surlignes, puis en gris la couche et le champ (ou le type d'adresse BAN : numero, voie, lieu-dit, commune). Une bordure a la couleur de la source les distingue d'un coup d'oeil — turquoise pour la BAN. A droite, la distance au centre de la carte pour une adresse ou des coordonnees, le nombre d'objets pour une valeur partagee par plusieurs entites.
+
+Les coordonnees viennent en tete, puis les adresses, puis les valeurs des couches. Quand les resultats sont nombreux, les lignes et le texte se resserrent pour en montrer davantage, puis la liste defile. Le pied indique combien de resultats sont affiches, rappelle **Tab** pour tout voir, et montre l'etat de l'index avec une jauge.
 
 ---
 
 ## ⌨️ Utilisation
 
-1. Cliquez sur l'icone **Magic Search** dans la barre d'outils, ou appuyez sur **`Ctrl+Shift+F`**.
+1. Cliquez sur l'icone **Magic Search** dans la barre d'outils, ou appuyez sur **`Ctrl+Alt+F`**.
 2. Tapez **au moins 2 caracteres**. La recherche part a chaque frappe.
-3. Les resultats apparaissent groupes par source : **BAN**, **OSM**, puis une section par couche.
-4. **Survolez** un resultat pour voir la geometrie s'allumer sur la carte, **cliquez** pour zoomer dessus.
-5. Pour retrouver une adresse depuis la carte : bouton **?**, puis clic sur le point voulu.
-6. Pour ouvrir une vue de rue : bouton **◎**, choisissez le service, puis clic sur la carte.
+3. Les resultats s'affichent dans une seule liste : coordonnees, adresses (**BAN** ou **OSM**), puis valeurs trouvees dans les couches. Plusieurs mots se tapent dans n'importe quel ordre.
+4. **Survolez** un resultat pour voir la geometrie s'allumer sur la carte, **cliquez** (ou **Entree**) pour zoomer dessus.
+5. Pour retrouver une adresse depuis la carte : menu **⋮ → Adresse au clic sur la carte**, puis clic sur le point voulu.
+6. Pour ouvrir une vue de rue : bouton **jumelles**, choisissez le service, puis clic sur la carte.
 
 > Astuce : un point que vous consultez souvent (poste de relevage, regard de reference) merite un favori — menu **⋮ → Favoris → Ajouter**. Le zoom se fait ensuite en deux clics, sans rien retaper.
 
@@ -120,7 +131,7 @@ Sur la barre flottante, ces menus deroulants reprennent la charte graphique de l
 
 ## 🛠️ Configuration
 
-Accessible par le bouton **⚙** de la barre.
+Accessible par le menu **⋮ → Configuration** de la barre.
 
 | Reglage | Detail |
 |---|---|
@@ -128,7 +139,7 @@ Accessible par le bouton **⚙** de la barre.
 | **Filtre BAN** | Restreint les resultats BAN a un code postal |
 | **Rayon de geocodage inverse** | Distance maximale, en metres, pour le bouton **?** (defaut 25 m) |
 | **Couches et champs** | Cochez/decochez ce qui doit etre indexe |
-| **Perimetre de recherche** | Ne repondre que sur les couches cochees, sans cesser d'indexer les autres |
+| **Perimetre de recherche** | Ne repondre que sur les couches cochees, sans cesser d'indexer les autres — le meme reglage que la puce **◉** de la barre |
 | **Zoom sur un point** | Echelle appliquee a un resultat ponctuel : 1:200 (defaut), 1:500 ou 1:1000 |
 | **Dates et decimales** | Non indexees par defaut ; une case a cocher les inclut |
 | **Cache** | Taille maximale (defaut 50 Mo) ; le chemin affiche est cliquable et ouvre le dossier |
@@ -162,7 +173,10 @@ Une couche examinee mais sans aucun champ indexable n'est pas comptee comme manq
 Par defaut, les champs **texte et entiers**. Sont ecartes :
 
 - les **dates** ;
-- les **nombres a decimales** — on ne cherche pas une altitude au clavier.
+- les **nombres a decimales** — on ne cherche pas une altitude au clavier ;
+- les valeurs **NULL** et l'identifiant interne `fid` des GeoPackage et shapefiles (une cle primaire PostGIS, elle, reste indexee).
+
+Les dates, si vous les incluez, sont indexees en ISO (`2024-03-01`) et au format francais (`01/03/2024`). Les ligatures sont normalisees : `coeur` trouve « cœur ».
 
 Avec une nuance qui compte sur des donnees reelles : beaucoup de sources (shapefiles, exports) typent en decimal des colonnes qui ne contiennent que des entiers, et ce sont souvent les champs metier qu'on cherche vraiment (numero de regard, diametre, contenance). Ces colonnes sont donc indexees, et abandonnees seulement si une vraie decimale apparait — verifie a chaque valeur, pas sur un echantillon.
 
@@ -172,7 +186,7 @@ Une meme table chargee plusieurs fois dans le projet (copie d'une couche, couche
 
 Un dossier `<projet>_magic_search_cache/` a cote du `.qgz`, contenant un `manifest.json` et un fichier `.idx` par index. Chaque `.idx` est un conteneur binaire (entete JSON + tableaux d'entiers bruts) compresse en LZMA.
 
-Il est relu **couche par couche**, une par tour de boucle d'evenements : l'interface reste utilisable pendant le chargement, et la recherche fonctionne deja sur les couches pretes. Un index dont l'empreinte ne correspond plus est reconstruit ; les autres sont repris tels quels — une synchronisation sur un projet inchange ne coute donc presque rien.
+Il est relu **couche par couche**, une par tour de boucle d'evenements : l'interface reste utilisable pendant le chargement, et la recherche fonctionne deja sur les couches pretes. Un index dont l'empreinte ne correspond plus est reconstruit ; les autres sont repris tels quels — une synchronisation sur un projet inchange ne coute donc presque rien. L'empreinte tient aussi compte de la taille et de la date du fichier source : une valeur corrigee sans changer le nombre d'entites est bien detectee. Enregistrer des modifications sur une couche dans QGIS fait aussitot passer l'index a l'orange.
 
 Le format du cache est versionne : un cache produit par une version anterieure du plugin est purge et reconstruit une fois.
 
@@ -238,7 +252,7 @@ Reste un detail d'import : `QAction` et `QShortcut` ont quitte `QtWidgets` pour 
 
 3. Ouvrez QGIS, allez dans **Extensions → Installer/Gerer les extensions → Installees**, cochez **Magic Search** et cliquez sur **OK**.
 
-4. L'icone apparait dans la barre d'outils. Raccourci : **`Ctrl+Shift+F`**.
+4. L'icone apparait dans la barre d'outils. Raccourci : **`Ctrl+Alt+F`**.
 
 > Le plugin est aussi disponible depuis le depot officiel : **Extensions → Installer/Gerer les extensions → Toutes**, puis recherchez « Magic Search ».
 
@@ -288,16 +302,19 @@ The cost of that instant search is paid once, and when you decide: indexing neve
 | **BAN address search** | French address geocoding through the official `api-adresse.data.gouv.fr` API, with optional postcode filter |
 | **OSM address search** | Worldwide geocoding through Nominatim (OpenStreetMap) |
 | **Layer search** | Instant search across every field of every vector layer, no expression to write |
+| **Word search** | All words, in any order: `chatel step` finds "STEP Chatel Montagne". Dashes, apostrophes, slashes, dots and brackets are ignored, each word is highlighted |
 | **Coordinate search** | Type `45.123, 3.456` (WGS84) or `652461, 6862050` (Lambert 93): the plugin detects the format and zooms |
-| **Reverse geocoding** | **?** button: click the map, the nearest BAN address (configurable radius, 25 m by default) appears in the field; the marker stays visible |
-| **Street view** | **◎** button: Google Street View, Mapillary, Panoramax or Bing Streetside open in the browser at the clicked point — or copy the coordinates (WGS84 + Lambert 93) |
+| **Reverse geocoding** | **⋮ → Address at map click** menu: click the map, the nearest BAN address (configurable radius, 25 m by default) appears in the field; a **?** chip shows the tool is active |
+| **Street view** | **Binoculars** button: Google Street View, Mapillary, Panoramax or Bing Streetside open in the browser at the clicked point — or copy the coordinates (WGS84 + Lambert 93) |
 | **Favourites** | Save recurring points and jump back to them in one click |
 | **History** | The last 5 searches, from the **⋮** menu |
 | **Geometry preview** | Highlight on hover, zoom on click |
+| **Keyboard** | **↑ ↓** to browse the list, **Enter** to zoom, **Esc** to close it, **Tab** to show more results |
+| **Sorted by distance** | Addresses and coordinates sorted by distance from the map centre: `rue de Paris` typed while looking at Vichy gives Vichy's first |
 | **Incremental indexing** | Never blocking: search already works on ready layers while the others load |
 | **Compressed cache** | Index stored next to the `.qgz`, with a per-layer fingerprint so only changed layers are rebuilt |
 | **On-demand indexing** | Nothing starts by itself: the bar's **⟳** button runs the pass and shows the index state through its colour |
-| **Search scope** | Option to answer only on ticked layers, while still indexing the others |
+| **Search scope** | **◉ Visible ▾** chip on the left of the bar: answer only on ticked layers, or on all of them, in one click — the others stay indexed |
 | **Zoom scale** | On a point result: 1:200, 1:500 or 1:1000 |
 | **2 UI styles** | Floating bar over the canvas, or dockable panel |
 | **QGIS 3 and QGIS 4** | One codebase, from QGIS 3.16 (Qt 5) to QGIS 4 (Qt 6) |
@@ -307,12 +324,14 @@ The cost of that instant search is paid once, and when you decide: indexing neve
 
 ### ⌨️ Usage
 
-1. Click the **Magic Search** toolbar icon, or press **`Ctrl+Shift+F`**.
+1. Click the **Magic Search** toolbar icon, or press **`Ctrl+Alt+F`**.
 2. Type **at least 2 characters**; the search runs on every keystroke.
-3. Results are grouped by source: **BAN**, **OSM**, then one section per layer.
-4. **Hover** a result to highlight the geometry, **click** to zoom to it.
-5. **?** button then a map click: shows the nearest BAN address.
-6. **◎** button, pick a service, then a map click: opens the street view.
+3. Results come in a single list: coordinates, addresses (**BAN** or **OSM**), then values found in the layers. Several words can be typed in any order.
+4. **Hover** a result to highlight the geometry, **click** it (or press **Enter**) to zoom to it.
+5. **⋮ → Address at map click**, then a map click: shows the nearest BAN address.
+6. **Binoculars** button, pick a service, then a map click: opens the street view.
+
+The bar is a rounded pill: scope chip, search field, index state (dot + **⟳** sync button), binoculars and the **⋮** menu (address at map click, favourites, recent searches, settings, collapse). Each result line shows the matched value in bold, the layer and field in grey, a border in the source colour, and on the right the distance or the number of features.
 
 ### 🔄 QGIS 3 and QGIS 4
 
@@ -349,7 +368,7 @@ See the French section [QGIS 3 et QGIS 4](#-qgis-3-et-qgis-4) for the details.
 
 3. In QGIS, open **Plugins → Manage and Install Plugins → Installed**, tick **Magic Search** and click **OK**.
 
-4. The toolbar icon appears. Shortcut: **`Ctrl+Shift+F`**.
+4. The toolbar icon appears. Shortcut: **`Ctrl+Alt+F`**.
 
 ---
 
@@ -367,9 +386,10 @@ Un solo campo acepta una direccion, un valor de negocio (numero de pozo, referen
 
 - **Geocodificacion BAN** (Francia) y **OSM/Nominatim** (mundial), con filtro por codigo postal
 - **Busqueda en todos los campos** de todas las capas vectoriales, sin escribir expresiones
+- **Busqueda por palabras** en cualquier orden : `chatel step` encuentra « STEP Chatel Montagne »
 - **Busqueda de coordenadas** WGS84 y Lambert 93
-- **Geocodificacion inversa** con el boton **?** : clic en el mapa, direccion BAN mas cercana (radio configurable, 25 m por defecto)
-- **Vista de calle** con el boton **◎** : Google Street View, Mapillary, Panoramax, Bing Streetside, o copiar las coordenadas
+- **Geocodificacion inversa** desde el menu **⋮** : clic en el mapa, direccion BAN mas cercana (radio configurable, 25 m por defecto)
+- **Vista de calle** con el boton de **prismaticos** : Google Street View, Mapillary, Panoramax, Bing Streetside, o copiar las coordenadas
 - **Favoritos** e **historial** (5 ultimas busquedas) en el menu **⋮**
 - **Indexacion incremental** no bloqueante y **cache comprimida** junto al archivo de proyecto
 - **Indexacion a peticion** : nada se lanza solo, el boton **⟳** de la barra ejecuta la pasada y muestra el estado del indice por su color
@@ -382,7 +402,7 @@ Un solo campo acepta una direccion, un valor de negocio (numero de pozo, referen
 
 1. Copie la carpeta `magic_search` en `.../QGIS3/profiles/default/python/plugins/`
 2. Abra **Complementos → Administrar e instalar complementos → Instalados**, marque **Magic Search** y pulse **Aceptar**
-3. Requisitos: QGIS **3.16 a 4.x**, ninguna dependencia de Python. Atajo: **`Ctrl+Shift+F`**
+3. Requisitos: QGIS **3.16 a 4.x**, ninguna dependencia de Python. Atajo: **`Ctrl+Alt+F`**
 
 ---
 
@@ -400,9 +420,10 @@ Um unico campo aceita um endereco, um valor de negocio (numero de caixa, referen
 
 - **Geocodificacao BAN** (Franca) e **OSM/Nominatim** (mundial), com filtro por codigo postal
 - **Pesquisa em todos os campos** de todas as camadas vetoriais, sem escrever expressoes
+- **Pesquisa por palavras** em qualquer ordem : `chatel step` encontra « STEP Chatel Montagne »
 - **Pesquisa de coordenadas** WGS84 e Lambert 93
-- **Geocodificacao inversa** com o botao **?** : clique no mapa, endereco BAN mais proximo (raio configuravel, 25 m por defeito)
-- **Vista de rua** com o botao **◎** : Google Street View, Mapillary, Panoramax, Bing Streetside, ou copiar as coordenadas
+- **Geocodificacao inversa** a partir do menu **⋮** : clique no mapa, endereco BAN mais proximo (raio configuravel, 25 m por defeito)
+- **Vista de rua** com o botao de **binoculos** : Google Street View, Mapillary, Panoramax, Bing Streetside, ou copiar as coordenadas
 - **Favoritos** e **historico** (5 ultimas pesquisas) no menu **⋮**
 - **Indexacao incremental** nao bloqueante e **cache comprimida** junto ao ficheiro de projeto
 - **Indexacao a pedido** : nada arranca sozinho, o botao **⟳** da barra lanca a passagem e mostra o estado do indice pela sua cor
@@ -415,7 +436,7 @@ Um unico campo aceita um endereco, um valor de negocio (numero de caixa, referen
 
 1. Copie a pasta `magic_search` para `.../QGIS3/profiles/default/python/plugins/`
 2. Abra **Modulos → Gerir e instalar modulos → Instalados**, marque **Magic Search** e clique em **OK**
-3. Requisitos: QGIS **3.16 a 4.x**, nenhuma dependencia Python. Atalho: **`Ctrl+Shift+F`**
+3. Requisitos: QGIS **3.16 a 4.x**, nenhuma dependencia Python. Atalho: **`Ctrl+Alt+F`**
 
 ---
 
@@ -433,9 +454,10 @@ Ein einziges Feld akzeptiert eine Adresse, einen Fachwert (Schachtnummer, Flurst
 
 - **BAN-Geokodierung** (Frankreich) und **OSM/Nominatim** (weltweit), mit Postleitzahlfilter
 - **Suche in allen Feldern** aller Vektorebenen, ohne Ausdruecke zu schreiben
+- **Wortsuche** in beliebiger Reihenfolge : `chatel step` findet « STEP Chatel Montagne »
 - **Koordinatensuche** in WGS84 und Lambert 93
-- **Rueckwaerts-Geokodierung** mit der Schaltflaeche **?** : Klick auf die Karte, naechste BAN-Adresse (konfigurierbarer Radius, standardmaessig 25 m)
-- **Strassenansicht** mit der Schaltflaeche **◎** : Google Street View, Mapillary, Panoramax, Bing Streetside oder Koordinaten kopieren
+- **Rueckwaerts-Geokodierung** ueber das Menue **⋮** : Klick auf die Karte, naechste BAN-Adresse (konfigurierbarer Radius, standardmaessig 25 m)
+- **Strassenansicht** mit der **Fernglas**-Schaltflaeche : Google Street View, Mapillary, Panoramax, Bing Streetside oder Koordinaten kopieren
 - **Favoriten** und **Verlauf** (letzte 5 Suchen) im Menue **⋮**
 - **Inkrementelle, nicht blockierende Indizierung** und **komprimierter Cache** neben der Projektdatei
 - **Indizierung auf Abruf** : nichts startet von selbst, die Schaltflaeche **⟳** der Leiste startet den Durchlauf und zeigt den Zustand des Index ueber ihre Farbe
@@ -448,7 +470,7 @@ Ein einziges Feld akzeptiert eine Adresse, einen Fachwert (Schachtnummer, Flurst
 
 1. Kopieren Sie den Ordner `magic_search` nach `.../QGIS3/profiles/default/python/plugins/`
 2. Oeffnen Sie **Erweiterungen → Erweiterungen verwalten und installieren → Installiert**, haken Sie **Magic Search** an und klicken Sie **OK**
-3. Voraussetzungen: QGIS **3.16 bis 4.x**, keine Python-Abhaengigkeit. Tastenkuerzel: **`Ctrl+Shift+F`**
+3. Voraussetzungen: QGIS **3.16 bis 4.x**, keine Python-Abhaengigkeit. Tastenkuerzel: **`Ctrl+Alt+F`**
 
 ---
 
@@ -486,6 +508,9 @@ La couche de compatibilite Qt 5 / Qt 6 y est testee sur des evenements souris si
 
 | Version | Notes |
 |---------|-------|
+| **2.2.0** | **Nouvelle barre de recherche** (barre flottante et panneau) : puce de perimetre, etat de l'index, jumelles, menu **⋮** — liste de resultats sur deux niveaux avec distance ou nombre d'objets, lignes resserrees quand les resultats sont nombreux, navigation au clavier — **recherche par mots** dans n'importe quel ordre — adresses et coordonnees classees par distance au centre de la carte — indexation 3 a 3,6 fois plus rapide, sans gel — raccourci **`Ctrl+Alt+F`** — corrections : favoris effaces en validant la configuration, couche modifiee non detectee, NULL de shapefile indexes, dates illisibles |
+| **2.1.1** | Correction d'un plantage sous QGIS 4 / Qt 6 (lecture sans geometrie) |
+| **2.1.0** | Indexation pilotee par un budget de temps — lecture restreinte aux champs indexes — journal `indexation.log` a cote du cache — empreintes en blake2b |
 | **2.0.0** | **Compatibilite QGIS 4 / Qt 6** avec un seul code, de QGIS 3.16 a 4.x — indexation declenchee par l'utilisateur, avec un bouton **⟳** qui affiche l'etat de l'index — option pour restreindre la recherche aux couches cochees — echelle de zoom configurable sur un resultat ponctuel — code reorganise en paquets `ui/`, `core/`, `providers/` |
 | **1.5.0** | Recherche jusqu'a 25x plus rapide (index en colonnes compactes balayees en C) — rechargement instantane du plugin — deduplication des tables chargees plusieurs fois — dates et decimales exclues par defaut, avec detection des colonnes decimales ne contenant que des entiers — nouveau format de cache LZMA (pres de quatre fois moins de disque) — preferences memorisees globalement |
 | **1.4.0** | Recherche de coordonnees WGS84 / Lambert 93 — copie des coordonnees — rayon de geocodage inverse configurable — filtre BAN par code postal — favoris et historique dans un menu **⋮** — repere persistant du dernier point interroge |
@@ -504,7 +529,7 @@ Le detail complet de chaque version est dans [`metadata.txt`](metadata.txt).
 
 Developpe par / Developed by **Yoan Laloux**
 
-Technicien SIG — Vichy Communaute · GIS Technician — Vichy Communaute
+Technicien SIG · GIS Technician
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-ylaloux-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/ylaloux/)
 [![GitHub](https://img.shields.io/badge/GitHub-Cartoyoyo-black?logo=github)](https://github.com/Cartoyoyo)

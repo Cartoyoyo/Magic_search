@@ -7,12 +7,12 @@ description=FR: Une seule barre pour tout retrouver dans QGIS : tapez une adress
     ES: Una sola barra para encontrarlo todo en QGIS: escriba una direccion, un numero de elemento o unas coordenadas y el complemento busca a la vez en el geocodificador BAN/OSM y en todos los campos de todas las capas del proyecto.
     PT: Uma unica barra para encontrar tudo no QGIS: escreva um endereco, um numero de elemento ou coordenadas e o modulo pesquisa ao mesmo tempo no geocodificador BAN/OSM e em todos os campos de todas as camadas do projeto.
     DE: Eine einzige Leiste, um in QGIS alles zu finden: Adresse, Objektnummer oder Koordinaten eingeben - die Erweiterung sucht gleichzeitig im BAN/OSM-Geocoder und in allen Feldern aller Projektebenen.
-about=FR: Recherchez simultanement dans les adresses (BAN pour la France, OSM/Nominatim dans le monde entier) et dans tous les champs de toutes les couches vectorielles de votre projet QGIS. Deux styles d'interface au choix : barre flottante deplacable et redimensionnable posee sur le canevas, ou panneau ancrable. Compatible QGIS 3.16 a QGIS 4 (Qt 5 comme Qt 6). Les resultats sont groupes par source, avec surbrillance de la geometrie au survol et zoom au clic. Un bouton "?" active un outil de geocodage inverse : cliquez sur la carte pour afficher directement dans le champ de recherche l'adresse BAN la plus proche (dans un rayon de 25 m). L'indexation est incrementale et non bloquante, et le resultat est conserve dans un cache compresse stocke a cote du fichier projet, avec empreinte par couche pour ne reindexer que ce qui a change. Interface traduite en 5 langues (FR, EN, ES, PT, DE). Un menu "vue de rue" ouvre, au clic sur la carte, la vue Street View/Mapillary/Panoramax/Bing Streetside du point dans le navigateur. Auteur : Yoan Laloux - https://www.linkedin.com/in/ylaloux/
-    EN: Search simultaneously in addresses (BAN for France, OSM/Nominatim worldwide) and in every field of every vector layer of your QGIS project. Two UI styles: a draggable and resizable floating bar over the map canvas, or a dockable panel. Works on QGIS 3.16 through QGIS 4 (Qt 5 and Qt 6). Results are grouped by source, with geometry highlighting on hover and zoom on click. A "?" button activates a reverse geocoding tool: click on the map to show the nearest BAN address (within 25 m) directly in the search field. A "street view" menu opens, on map click, the Google Street View/Mapillary/Panoramax/Bing Streetside view of the point in the browser. Indexing is incremental and non-blocking, and is persisted in a compressed cache stored next to the project file, with a per-layer fingerprint so only changed layers are re-indexed. UI translated into 5 languages (FR, EN, ES, PT, DE). Author: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
-    ES: Busque simultaneamente en direcciones (BAN en Francia, OSM/Nominatim en todo el mundo) y en todos los campos de todas las capas vectoriales de su proyecto QGIS. Dos estilos de interfaz: barra flotante o panel acoplable. Compatible con QGIS 3.16 hasta QGIS 4 (Qt 5 y Qt 6). Un boton "?" activa la geocodificacion inversa: clic en el mapa para mostrar la direccion BAN mas cercana (a menos de 25 m) en el campo de busqueda. Un menu "vista de calle" abre, al hacer clic en el mapa, la vista Google Street View/Mapillary/Panoramax/Bing Streetside del punto en el navegador. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
-    PT: Pesquise simultaneamente em enderecos (BAN na Franca, OSM/Nominatim em todo o mundo) e em todos os campos de todas as camadas vetoriais do seu projeto QGIS. Dois estilos de interface: barra flutuante ou painel acoplavel. Compativel com QGIS 3.16 ate QGIS 4 (Qt 5 e Qt 6). Um botao "?" ativa a geocodificacao inversa: clique no mapa para mostrar o endereco BAN mais proximo (a menos de 25 m) no campo de pesquisa. Um menu "vista de rua" abre, ao clicar no mapa, a vista Google Street View/Mapillary/Panoramax/Bing Streetside do ponto no navegador. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
-    DE: Suchen Sie gleichzeitig in Adressen (BAN fur Frankreich, OSM/Nominatim weltweit) und in allen Feldern aller Vektorebenen Ihres QGIS-Projekts. Zwei Oberflachenstile: schwebende Leiste oder andockbares Panel. Kompatibel mit QGIS 3.16 bis QGIS 4 (Qt 5 und Qt 6). Eine Schaltflache "?" aktiviert die Rueckwaerts-Geokodierung: Klick auf die Karte zeigt die naechste BAN-Adresse (innerhalb von 25 m) direkt im Suchfeld. Ein "Strassenansicht"-Menue oeffnet beim Kartenklick die Google Street View/Mapillary/Panoramax/Bing-Streetside-Ansicht des Punkts im Browser. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
-version=2.1.1
+about=FR: Recherchez simultanement dans les adresses (BAN pour la France, OSM/Nominatim dans le monde entier) et dans tous les champs de toutes les couches vectorielles de votre projet QGIS. Deux styles d'interface au choix : barre flottante deplacable et redimensionnable posee sur le canevas, ou panneau ancrable. Compatible QGIS 3.16 a QGIS 4 (Qt 5 comme Qt 6). Les resultats sont groupes par source, avec surbrillance de la geometrie au survol et zoom au clic. L'entree "Adresse au clic sur la carte" du menu de la barre active un outil de geocodage inverse : cliquez sur la carte pour afficher directement dans le champ de recherche l'adresse BAN la plus proche (dans un rayon de 25 m). Plusieurs mots se cherchent dans n'importe quel ordre : "chatel step" trouve "STEP Chatel Montagne". L'indexation est incrementale et non bloquante, et le resultat est conserve dans un cache compresse stocke a cote du fichier projet, avec empreinte par couche pour ne reindexer que ce qui a change. Interface traduite en 5 langues (FR, EN, ES, PT, DE). Un menu "vue de rue" ouvre, au clic sur la carte, la vue Street View/Mapillary/Panoramax/Bing Streetside du point dans le navigateur. Auteur : Yoan Laloux - https://www.linkedin.com/in/ylaloux/
+    EN: Search simultaneously in addresses (BAN for France, OSM/Nominatim worldwide) and in every field of every vector layer of your QGIS project. Two UI styles: a draggable and resizable floating bar over the map canvas, or a dockable panel. Works on QGIS 3.16 through QGIS 4 (Qt 5 and Qt 6). Results are grouped by source, with geometry highlighting on hover and zoom on click. The "Address at map click" entry of the bar menu activates a reverse geocoding tool: click on the map to show the nearest BAN address (within 25 m) directly in the search field. Several words are matched in any order: "chatel step" finds "STEP Chatel Montagne". A "street view" menu opens, on map click, the Google Street View/Mapillary/Panoramax/Bing Streetside view of the point in the browser. Indexing is incremental and non-blocking, and is persisted in a compressed cache stored next to the project file, with a per-layer fingerprint so only changed layers are re-indexed. UI translated into 5 languages (FR, EN, ES, PT, DE). Author: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
+    ES: Busque simultaneamente en direcciones (BAN en Francia, OSM/Nominatim en todo el mundo) y en todos los campos de todas las capas vectoriales de su proyecto QGIS. Dos estilos de interfaz: barra flotante o panel acoplable. Compatible con QGIS 3.16 hasta QGIS 4 (Qt 5 y Qt 6). Una entrada del menu de la barra activa la geocodificacion inversa: clic en el mapa para mostrar la direccion BAN mas cercana (a menos de 25 m) en el campo de busqueda. Varias palabras se buscan en cualquier orden. Un menu "vista de calle" abre, al hacer clic en el mapa, la vista Google Street View/Mapillary/Panoramax/Bing Streetside del punto en el navegador. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
+    PT: Pesquise simultaneamente em enderecos (BAN na Franca, OSM/Nominatim em todo o mundo) e em todos os campos de todas as camadas vetoriais do seu projeto QGIS. Dois estilos de interface: barra flutuante ou painel acoplavel. Compativel com QGIS 3.16 ate QGIS 4 (Qt 5 e Qt 6). Um item do menu da barra ativa a geocodificacao inversa: clique no mapa para mostrar o endereco BAN mais proximo (a menos de 25 m) no campo de pesquisa. Varias palavras sao pesquisadas em qualquer ordem. Um menu "vista de rua" abre, ao clicar no mapa, a vista Google Street View/Mapillary/Panoramax/Bing Streetside do ponto no navegador. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
+    DE: Suchen Sie gleichzeitig in Adressen (BAN fur Frankreich, OSM/Nominatim weltweit) und in allen Feldern aller Vektorebenen Ihres QGIS-Projekts. Zwei Oberflachenstile: schwebende Leiste oder andockbares Panel. Kompatibel mit QGIS 3.16 bis QGIS 4 (Qt 5 und Qt 6). Ein Eintrag im Menue der Leiste aktiviert die Rueckwaerts-Geokodierung: Klick auf die Karte zeigt die naechste BAN-Adresse (innerhalb von 25 m) direkt im Suchfeld. Mehrere Woerter werden in beliebiger Reihenfolge gefunden. Ein "Strassenansicht"-Menue oeffnet beim Kartenklick die Google Street View/Mapillary/Panoramax/Bing-Streetside-Ansicht des Punkts im Browser. Autor: Yoan Laloux - https://www.linkedin.com/in/ylaloux/
+version=2.2.0
 author=Yoan Laloux
 email=y.laloux@vichy-communaute.fr
 homepage=https://github.com/Cartoyoyo/Magic_search
@@ -23,7 +23,49 @@ icon=icon.png
 tags=search,geocoding,ban,osm,nominatim,address,layers,universal,attribute,index,qgis4,qt6
 category=Search
 hasProcessingProvider=no
-changelog=2.1.1
+changelog=2.2.0
+    - Nouvelle barre de recherche, commune a la barre flottante et au panneau
+      ancrable : une pilule arrondie avec la puce de perimetre (couches cochees
+      ou toutes les couches, en un clic), le champ, l'etat de l'index (pastille
+      + synchronisation), la vue de rue (jumelles) et un menu qui regroupe
+      l'adresse au clic, les favoris, les recherches recentes, la configuration
+      et le repli de la barre
+    - Liste de resultats redessinee : une ligne par resultat sur deux niveaux
+      (valeur trouvee en gras, puis couche et champ), bordure a la couleur de la
+      source, distance ou nombre d'objets a droite, pied avec le nombre de
+      resultats et l'etat de l'index. Les lignes se resserrent quand les
+      resultats sont nombreux ; Tab en affiche davantage
+    - Navigation au clavier dans la liste : fleches, Entree, Echap, Tab
+    - Recherche par mots : tous les mots, dans n'importe quel ordre ("chatel
+      step" trouve "STEP Chatel Montagne"), separateurs ignores, chaque mot
+      surligne
+    - Adresses et coordonnees classees par distance au centre de la carte :
+      "rue de Paris" tape depuis Vichy donne d'abord celle de Vichy
+    - Indexation 3 a 3,6 fois plus rapide sur les couches a nombreux champs ;
+      plus de gel au debut d'une passe (dates des fichiers lues en tache de
+      fond) ni a la fin d'une grosse couche (compression en tache de fond)
+    - Zoom sur une valeur partagee par des milliers d'entites : emprise
+      calculee en une seule requete (4 000 entites prenaient 10 s)
+    - Une couche modifiee est detectee, meme sans changement du nombre
+      d'entites (taille et date du fichier dans l'empreinte), et l'index passe
+      a l'orange des que des modifications sont enregistrees dans QGIS
+    - Correction : valider la configuration effacait les favoris
+    - Correction : une couche ou un champ exclu restait cherchable jusqu'a la
+      synchronisation suivante
+    - Correction : les valeurs NULL des shapefiles etaient indexees comme le
+      texte "NULL"
+    - Correction : les dates etaient indexees sous une forme illisible ; elles
+      le sont desormais en ISO et au format francais
+    - Correction : erreurs Python apres une bascule entre barre flottante et
+      panneau ancrable, surbrillances qui restaient sur la carte
+    - L'identifiant interne fid des fichiers n'est plus indexe (une cle
+      primaire PostGIS l'est toujours) ; les ligatures oe, ae et ss sont
+      normalisees
+    - Raccourci clavier deplace sur Ctrl+Alt+F : Ctrl+Shift+F est deja le zoom
+      sur l'emprise totale de QGIS
+    - Le cache d'index est reconstruit une fois, a la premiere synchronisation
+      apres la mise a jour
+    2.1.1
     - Correction d'un plantage sous QGIS 4 / Qt 6 : le drapeau de lecture sans
       geometrie utilisait une enumeration non cadree sur les versions de QGIS
       anterieures a 3.36

@@ -29,6 +29,13 @@ class BanProvider(QObject):
         self._pending_query = ''
         self._enabled = True
         self._postcode_filter = ''
+        self._focus_provider = None
+
+    def set_focus_provider(self, provider):
+        """`provider()` rend (lon, lat) ou None : le point autour duquel le BAN
+        doit privilegier ses reponses (le centre de la carte). Sans lui,
+        "rue de Paris" tape depuis Vichy donnait Amiens, Rennes, Montreuil."""
+        self._focus_provider = provider
 
     def set_enabled(self, enabled):
         self._enabled = enabled
@@ -57,6 +64,11 @@ class BanProvider(QObject):
         url_str = BAN_URL.format(query=urllib.parse.quote(self._pending_query, safe=''))
         if self._postcode_filter:
             url_str += '&postcode=' + urllib.parse.quote(self._postcode_filter, safe='')
+        focus = self._focus_provider() if self._focus_provider else None
+        if focus:
+            # Priorite de proximite, pas un filtre : une adresse lointaine
+            # reste trouvable si elle est seule a correspondre.
+            url_str += '&lon=%.5f&lat=%.5f' % focus
         url = QUrl(url_str)
         request = QNetworkRequest(url)
         self._reply = self._nam.get(request)
@@ -65,6 +77,13 @@ class BanProvider(QObject):
     def _on_finished(self):
         reply = self._reply
         if reply is None:
+            return
+
+        if reply.error() == QNetworkReply.NetworkError.OperationCanceledError:
+            # Requete abandonnee pour une saisie plus recente (ou un champ
+            # efface) : c'est le fonctionnement normal, pas une erreur.
+            reply.deleteLater()
+            self._reply = None
             return
 
         if reply.error() != QNetworkReply.NetworkError.NoError:
@@ -130,6 +149,12 @@ class BanReverseProvider(QObject):
     def _on_finished(self):
         reply = self._reply
         if reply is None:
+            return
+
+        if reply.error() == QNetworkReply.NetworkError.OperationCanceledError:
+            # Second clic avant la reponse du premier : seul le dernier compte.
+            reply.deleteLater()
+            self._reply = None
             return
 
         if reply.error() != QNetworkReply.NetworkError.NoError:

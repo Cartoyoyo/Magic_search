@@ -22,30 +22,57 @@ def parse_coordinates(text):
     """Retourne un dict decrivant la coordonnee reconnue, sinon None.
     - WGS84  : {'crs': 'EPSG:4326', 'lon': float, 'lat': float, 'label': str}
     - Lambert93 : {'crs': 'EPSG:2154', 'x': float, 'y': float, 'label': str}
+    Quand les deux ordres sont possibles, c'est lat, lon qui est retenu ;
+    coordinate_candidates() donne les deux.
+    """
+    candidates = coordinate_candidates(text)
+    return candidates[0] if candidates else None
+
+
+def _wgs84(lat, lon, order):
+    # Libelle explicite : quand les deux lectures sont proposees, c'est lui
+    # qui dit laquelle est laquelle (les chiffres tapes sont les memes).
+    return {
+        'crs': 'EPSG:4326', 'lat': lat, 'lon': lon, 'order': order,
+        'label': f'lat {lat:.6f}, lon {lon:.6f} (WGS84)',
+    }
+
+
+def coordinate_candidates(text, near=None):
+    """Toutes les lectures plausibles d'une saisie, la plus probable d'abord.
+
+    Une paire decimale peut etre lat, lon (ordre GPS) ou lon, lat (ordre x, y
+    que QGIS affiche et copie en EPSG:4326). Lire "3.42, 46.12" en lat, lon
+    envoyait en Somalie au lieu de Vichy. Quand les deux ordres sont valides,
+    les deux sont proposes ; `near` (lon, lat), le centre de la carte en
+    general, place en tete celui qui tombe le plus pres.
     """
     text = text.strip()
 
     m = _DECIMAL_RE.match(text)
     if m:
         a, b = float(m.group(1)), float(m.group(2))
-        # Convention lat, lon (ordre GPS le plus courant) ; le premier nombre
-        # doit rester dans l'intervalle de latitude pour lever l'ambiguite.
+        found = []
         if -90 <= a <= 90 and -180 <= b <= 180:
-            return {
-                'crs': 'EPSG:4326', 'lat': a, 'lon': b,
-                'label': f'{a:.6f}, {b:.6f} (WGS84)',
-            }
+            found.append(_wgs84(a, b, 'latlon'))
+        if -90 <= b <= 90 and -180 <= a <= 180 and a != b:
+            found.append(_wgs84(b, a, 'lonlat'))
+        if near is not None and len(found) > 1:
+            n_lon, n_lat = near
+            found.sort(key=lambda c: (c['lon'] - n_lon) ** 2 + (c['lat'] - n_lat) ** 2)
+        if found:
+            return found
 
     m = _LAMBERT93_RE.match(text)
     if m:
         x, y = float(m.group(1)), float(m.group(2))
         if 0 <= x <= 1_300_000 and 6_000_000 <= y <= 7_200_000:
-            return {
+            return [{
                 'crs': 'EPSG:2154', 'x': x, 'y': y,
                 'label': f'{x:.1f}, {y:.1f} (Lambert93)',
-            }
+            }]
 
-    return None
+    return []
 
 
 def to_lonlat(coord):

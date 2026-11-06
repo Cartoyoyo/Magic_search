@@ -6,7 +6,7 @@ pour eviter que les correctifs ne s'appliquent qu'a un seul des deux.
 from qgis.PyQt.QtGui import QColor
 from qgis.core import (
     QgsProject, QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-    QgsPointXY, QgsGeometry, Qgis
+    QgsPointXY, QgsGeometry, QgsRectangle, QgsFeatureRequest, Qgis
 )
 from qgis.gui import QgsRubberBand
 
@@ -99,6 +99,28 @@ def transform_point(iface, lon, lat):
     return transform.transform(QgsPointXY(lon, lat))
 
 
+def canvas_center_lonlat(iface):
+    """Centre du canevas en WGS84 (lon, lat), ou None si indisponible.
+
+    Sert de point de reference : priorite de proximite pour le BAN, choix
+    de l'ordre lat/lon le plus plausible pour une coordonnee tapee.
+    """
+    try:
+        canvas = iface.mapCanvas()
+        crs_src = canvas.mapSettings().destinationCrs()
+        if not crs_src.isValid():
+            return None
+        transform = QgsCoordinateTransform(
+            crs_src, QgsCoordinateReferenceSystem('EPSG:4326'), QgsProject.instance())
+        point = transform.transform(canvas.center())
+    except Exception:
+        return None
+    lon, lat = point.x(), point.y()
+    if not (-180 <= lon <= 180 and -90 <= lat <= 90):
+        return None
+    return lon, lat
+
+
 def to_wgs84(x, y, crs_epsg):
     """Convertit un point (x, y) depuis crs_epsg (ex: 'EPSG:2154') vers
     WGS84. Retourne (lon, lat). Utilise par la recherche de coordonnees
@@ -132,48 +154,58 @@ def make_point_rubber(canvas, point, color=VC_TURQUOISE):
 
 
 def zoom_to_features(iface, layer_id, fids):
-    """Zoome/centre le canevas sur la geometrie combinee des fids, puis les selectionne."""
+    """Zoome/centre le canevas sur l'emprise des fids, puis les selectionne.
+
+    Seule l'emprise compte pour cadrer : on la cumule rectangle par
+    rectangle, en une seule requete. L'ancienne version fusionnait les
+    geometries une a une (combine) apres un getFeature() par fid : un cout
+    quadratique, 10 s pour 4 000 entites, plusieurs minutes pour une valeur
+    partagee par toute une commune.
+    """
     if not layer_id or not fids:
         return
     layer = QgsProject.instance().mapLayer(layer_id)
     if not layer:
         return
     canvas = iface.mapCanvas()
-    combined = QgsGeometry()
-    for fid in fids:
-        feat = layer.getFeature(fid)
-        if feat.hasGeometry():
-            if combined.isEmpty():
-                combined = QgsGeometry(feat.geometry())
-            else:
-                combined = combined.combine(feat.geometry())
-    if not combined.isEmpty():
+    request = QgsFeatureRequest().setFilterFids(list(fids)).setNoAttributes()
+    bbox = QgsRectangle()
+    found = False
+    for feat in layer.getFeatures(request):
+        if not feat.hasGeometry():
+            continue
+        if found:
+            bbox.combineExtentWith(feat.geometry().boundingBox())
+        else:
+            bbox = QgsRectangle(feat.geometry().boundingBox())
+            found = True
+    if found:
         crs_src = layer.crs()
         crs_dst = canvas.mapSettings().destinationCrs()
         if crs_src != crs_dst:
             transform = QgsCoordinateTransform(crs_src, crs_dst, QgsProject.instance())
-            combined.transform(transform)
-        # Agrandir l'emprise x2 autour du centre : l'objet occupe ~50% de l'ecran
-        # au lieu de le remplir entierement.
+            bbox = transform.transformBoundingBox(bbox)
         try:
-            is_point = combined.type() == _point_geom_type()
+            is_point = layer.geometryType() == _point_geom_type()
         except Exception:
             is_point = False
         floor = _point_scale if is_point else MIN_SCALE
 
-        bbox = combined.boundingBox()
+        center = bbox.center()
         if bbox.isEmpty():
             # Point unique (ou objets confondus) : aucune emprise a cadrer.
-            canvas.setCenter(combined.centroid().asPoint())
+            canvas.setCenter(center)
             canvas.zoomScale(floor)
         else:
+            # Agrandir l'emprise x2 autour du centre : l'objet occupe ~50% de
+            # l'ecran au lieu de le remplir entierement.
             bbox.scale(2.0)
             canvas.setExtent(bbox)
             if canvas.scale() < floor:
-                canvas.setCenter(combined.centroid().asPoint())
+                canvas.setCenter(center)
                 canvas.zoomScale(floor)
         canvas.refresh()
-    layer.selectByIds(fids)
+    layer.selectByIds(list(fids))
 
 
 def make_features_rubber(iface, layer_id, fids, color=COLOR_HIGHLIGHT, max_features=20):
@@ -206,7 +238,15 @@ def make_features_rubber(iface, layer_id, fids, color=COLOR_HIGHLIGHT, max_featu
 
 
 def clear_rubber(rubber_band):
-    """Reset un QgsRubberBand existant. Retourne toujours None (a reassigner par l'appelant)."""
+    """Efface un QgsRubberBand et le retire du canevas.
+
+    Retourne toujours None (a reassigner par l'appelant). reset() seul vidait
+    le repere sans le retirer de la scene : chaque survol de resultat y
+    laissait un objet de plus, pour toute la session.
+    """
     if rubber_band:
         rubber_band.reset()
+        scene = rubber_band.scene()
+        if scene is not None:
+            scene.removeItem(rubber_band)
     return None
