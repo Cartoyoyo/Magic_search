@@ -23,8 +23,8 @@ REPO_URL = 'https://github.com/Cartoyoyo/Magic_search'
 
 LANGS = ['fr', 'en', 'es', 'pt', 'de']
 LANG_LABELS = {
-    'fr': 'Francais', 'en': 'English', 'es': 'Espanol',
-    'pt': 'Portugues', 'de': 'Deutsch'
+    'fr': 'Français', 'en': 'English', 'es': 'Español',
+    'pt': 'Português', 'de': 'Deutsch'
 }
 LANG_FLAGS = {
     'fr': '\U0001F1EB\U0001F1F7', 'en': '\U0001F1EC\U0001F1E7',
@@ -36,17 +36,17 @@ TR = {
     'window_title': {
         'fr': "Magic Search - Configuration",
         'en': "Magic Search - Settings",
-        'es': "Magic Search - Configuracion",
-        'pt': "Magic Search - Configuracao",
+        'es': "Magic Search - Configuración",
+        'pt': "Magic Search - Configuração",
         'de': "Magic Search - Einstellungen"},
     'ban_group': {
         'fr': "Recherche BAN",
         'en': "BAN Search",
-        'es': "Busqueda BAN",
+        'es': "Búsqueda BAN",
         'pt': "Pesquisa BAN",
         'de': "BAN-Suche"},
     'geocoder_label': {
-        'fr': "Geocodeur",
+        'fr': "Géocodeur",
         'en': "Geocoder",
         'es': "Geocodificador",
         'pt': "Geocodificador",
@@ -55,7 +55,7 @@ TR = {
         'fr': "BAN (adresses FR)",
         'en': "BAN (FR addresses)",
         'es': "BAN (direcciones FR)",
-        'pt': "BAN (enderecos FR)",
+        'pt': "BAN (endereços FR)",
         'de': "BAN (FR-Adressen)"},
     'geocoder_osm': {
         'fr': "OSM / Nominatim (mondial)",
@@ -70,7 +70,7 @@ TR = {
         'pt': "Nenhum",
         'de': "Keiner"},
     'layers_group': {
-        'fr': "Couches a indexer",
+        'fr': "Couches à indexer",
         'en': "Layers to index",
         'es': "Capas a indexar",
         'pt': "Camadas a indexar",
@@ -84,49 +84,49 @@ TR = {
     'cache_max': {
         'fr': "Taille max du cache (Mo)",
         'en': "Max cache size (MB)",
-        'es': "Tamano max del cache (MB)",
-        'pt': "Tamanho max do cache (MB)",
-        'de': "Max. Cache-Grosse (MB)"},
+        'es': "Tamaño máx. de la caché (MB)",
+        'pt': "Tamanho máx. da cache (MB)",
+        'de': "Max. Cache-Größe (MB)"},
     'all_types': {
-        'fr': "Indexer aussi les dates et les nombres a decimales",
+        'fr': "Indexer aussi les dates et les nombres à décimales",
         'en': "Also index dates and decimal numbers",
-        'es': "Indexar tambien fechas y numeros decimales",
-        'pt': "Indexar tambem datas e numeros decimais",
+        'es': "Indexar también fechas y números decimales",
+        'pt': "Indexar também datas e números decimais",
         'de': "Auch Datums- und Dezimalwerte indizieren"},
     'all_types_tip': {
-        'fr': "Par defaut, les dates et les vraies decimales ne sont pas\n"
-              "indexees : on ne les recherche pas au clavier. Les colonnes\n"
-              "typees en decimal qui ne contiennent que des entiers (numero\n"
-              "de regard, de branchement...) restent indexees.",
+        'fr': "Par défaut, les dates et les vraies décimales ne sont pas\n"
+              "indexées : on ne les recherche pas au clavier. Les colonnes\n"
+              "typées en décimal qui ne contiennent que des entiers (numéro\n"
+              "de regard, de branchement...) restent indexées.",
         'en': "By default dates and true decimals are not indexed: nobody\n"
               "types them in a search box. Decimal-typed columns holding only\n"
               "whole numbers are still indexed.",
         'es': "Por defecto, las fechas y los decimales reales no se indexan.\n"
-              "Las columnas decimales con solo enteros si se indexan.",
-        'pt': "Por padrao, datas e decimais reais nao sao indexados.\n"
+              "Las columnas decimales con solo enteros sí se indexan.",
+        'pt': "Por padrão, datas e decimais reais não são indexados.\n"
               "Colunas decimais contendo apenas inteiros continuam indexadas.",
-        'de': "Datums- und echte Dezimalwerte werden standardmassig nicht\n"
-              "indiziert. Dezimalspalten mit ausschliesslich ganzen Zahlen\n"
+        'de': "Datums- und echte Dezimalwerte werden standardmäßig nicht\n"
+              "indiziert. Dezimalspalten mit ausschließlich ganzen Zahlen\n"
               "bleiben indiziert."},
     'cache_open_tip': {
         'fr': "Cliquer pour ouvrir le dossier du cache",
         'en': "Click to open the cache folder",
-        'es': "Clic para abrir la carpeta de cache",
+        'es': "Clic para abrir la carpeta de la caché",
         'pt': "Clique para abrir a pasta de cache",
-        'de': "Zum Offnen des Cache-Ordners klicken"},
+        'de': "Zum Öffnen des Cache-Ordners klicken"},
     'cache_info': {
-        'fr': "Le cache est stocke a cote du fichier projet (.qgz) dans le dossier\n"
-              "[projet]_magic_search_cache/ (un fichier par couche)\n"
-              "Il accelere la recherche en evitant de reindexer les couches a chaque ouverture.",
-        'en': "The cache is stored next to the project file (.qgz) as\n"
-              "[project]_magic_search_cache.gz\n"
+        'fr': "Le cache est stocké à côté du fichier projet (.qgz) dans le dossier\n"
+              "[projet]_magic_search_cache/ (un fichier par couche).\n"
+              "Il accélère la recherche en évitant de réindexer les couches à chaque ouverture.",
+        'en': "The cache is stored next to the project file (.qgz) in the folder\n"
+              "[project]_magic_search_cache/ (one file per layer).\n"
               "It speeds up search by avoiding re-indexing layers on each project load.",
-        'es': "El cache se almacena junto al archivo del proyecto (.qgz) como\n"
-              "[proyecto]_magic_search_cache.gz",
-        'pt': "O cache e armazenado junto ao arquivo do projeto (.qgz) como\n"
-              "[projeto]_magic_search_cache.gz",
-        'de': "Der Cache wird neben der Projektdatei (.qgz) gespeichert als\n"
-              "[Projekt]_magic_search_cache.gz"},
+        'es': "La caché se guarda junto al archivo del proyecto (.qgz) en la carpeta\n"
+              "[proyecto]_magic_search_cache/ (un archivo por capa).",
+        'pt': "O cache é armazenado junto ao arquivo do projeto (.qgz) na pasta\n"
+              "[projeto]_magic_search_cache/ (um arquivo por camada).",
+        'de': "Der Cache wird neben der Projektdatei (.qgz) im Ordner\n"
+              "[Projekt]_magic_search_cache/ gespeichert (eine Datei pro Layer)."},
     'ok': {
         'fr': "OK",         'en': "OK",
         'es': "OK",         'pt': "OK",        'de': "OK"},
@@ -134,55 +134,55 @@ TR = {
         'fr': "Annuler",    'en': "Cancel",
         'es': "Cancelar",   'pt': "Cancelar",  'de': "Abbrechen"},
     'about': {
-        'fr': "A propos",   'en': "About",
-        'es': "Acerca de",  'pt': "Sobre",     'de': "Uber"},
+        'fr': "À propos",   'en': "About",
+        'es': "Acerca de",  'pt': "Sobre",     'de': "Über"},
     'zoom_scale': {
         'fr': "Zoom sur un point",   'en': "Zoom on a point",
         'es': "Zoom en un punto",    'pt': "Zoom num ponto",
         'de': "Zoom auf einen Punkt"},
     'zoom_scale_tip': {
-        'fr': "Echelle appliquee quand on clique sur un resultat ponctuel.\n"
-              "Les lignes et polygones restent cadres sur leur emprise.",
+        'fr': "Échelle appliquée quand on clique sur un résultat ponctuel.\n"
+              "Les lignes et polygones restent cadrés sur leur emprise.",
         'en': "Scale applied when clicking a point result.\n"
               "Lines and polygons are still framed on their extent.",
         'es': "Escala aplicada al hacer clic en un resultado puntual.",
         'pt': "Escala aplicada ao clicar num resultado pontual.",
-        'de': "Massstab beim Klick auf ein punktformiges Ergebnis."},
+        'de': "Maßstab beim Klick auf ein punktförmiges Ergebnis."},
     'all_layers': {
-        'fr': "Chercher aussi dans les couches masquees",
+        'fr': "Chercher aussi dans les couches masquées",
         'en': "Also search hidden layers",
-        'es': "Buscar tambien en las capas ocultas",
-        'pt': "Pesquisar tambem nas camadas ocultas",
+        'es': "Buscar también en las capas ocultas",
+        'pt': "Pesquisar também nas camadas ocultas",
         'de': "Auch in ausgeblendeten Layern suchen"},
     'all_layers_tip': {
-        'fr': "Par defaut, la recherche ne repond que sur les couches\n"
-              "cochees dans le panneau des couches. Toutes les couches\n"
-              "restent indexees : cocher une couche la rend cherchable\n"
-              "aussitot, sans reindexation.",
+        'fr': "Par défaut, la recherche ne répond que sur les couches\n"
+              "cochées dans le panneau des couches. Toutes les couches\n"
+              "restent indexées : cocher une couche la rend cherchable\n"
+              "aussitôt, sans réindexation.",
         'en': "By default, search only answers on layers checked in the\n"
               "layers panel. Every layer stays indexed: ticking a layer\n"
               "makes it searchable at once, with no reindexing.",
-        'es': "Por defecto la busqueda solo responde en las capas\n"
+        'es': "Por defecto la búsqueda solo responde en las capas\n"
               "marcadas. Todas las capas siguen indexadas.",
-        'pt': "Por defeito a pesquisa so responde nas camadas marcadas.\n"
+        'pt': "Por defeito a pesquisa só responde nas camadas marcadas.\n"
               "Todas as camadas continuam indexadas.",
-        'de': "Standardmassig durchsucht die Suche nur aktivierte Layer.\n"
+        'de': "Standardmäßig durchsucht die Suche nur aktivierte Layer.\n"
               "Alle Layer bleiben indiziert."},
     'reindex': {
-        'fr': "Reindexer maintenant",
+        'fr': "Réindexer maintenant",
         'en': "Reindex now",
         'es': "Reindexar ahora",
         'pt': "Reindexar agora",
         'de': "Jetzt neu indizieren"},
     'ui_style_group': {
         'fr': "Style d'interface", 'en': "UI Style", 'es': "Estilo de interfaz",
-        'pt': "Estilo de interface", 'de': "Stil der Benutzeroberflache"},
+        'pt': "Estilo de interface", 'de': "Stil der Benutzeroberfläche"},
     # Le libelle ne mentionne plus "Qt5" : sous QGIS 4 l'interface est
     # construite avec Qt 6. La valeur stockee reste 'qt5' pour ne pas perdre
     # la preference des utilisateurs venant des versions 1.x.
     'ui_style_qt5': {
         'fr': "Panneau ancrable", 'en': "Dockable Panel",
-        'es': "Panel acoplable", 'pt': "Painel acoplavel",
+        'es': "Panel acoplable", 'pt': "Painel acoplável",
         'de': "Andockbares Panel"},
     'ui_style_maps': {
         'fr': "Barre flottante (Maps)", 'en': "Floating Bar (Maps)",
@@ -190,17 +190,17 @@ TR = {
         'de': "Schwebende Leiste (Maps)"},
     'appearance_group': {
         'fr': "Apparence", 'en': "Appearance", 'es': "Apariencia",
-        'pt': "Aparencia", 'de': "Erscheinungsbild"},
+        'pt': "Aparência", 'de': "Erscheinungsbild"},
     'opacity': {
-        'fr': "Opacite (0-100%)", 'en': "Opacity (0-100%)", 'es': "Opacidad (0-100%)",
+        'fr': "Opacité (0-100%)", 'en': "Opacity (0-100%)", 'es': "Opacidad (0-100%)",
         'pt': "Opacidade (0-100%)", 'de': "Deckkraft (0-100%)"},
     'reverse_radius': {
-        'fr': "Rayon geocodage inverse (m)", 'en': "Reverse geocoding radius (m)",
-        'es': "Radio de geocodificacion inversa (m)", 'pt': "Raio de geocodificacao inversa (m)",
-        'de': "Radius Rueckwaerts-Geokodierung (m)"},
+        'fr': "Rayon géocodage inverse (m)", 'en': "Reverse geocoding radius (m)",
+        'es': "Radio de geocodificación inversa (m)", 'pt': "Raio de geocodificação inversa (m)",
+        'de': "Radius Rückwärts-Geokodierung (m)"},
     'ban_postcode': {
         'fr': "Filtrer BAN par code postal", 'en': "Filter BAN by postcode",
-        'es': "Filtrar BAN por codigo postal", 'pt': "Filtrar BAN por codigo postal",
+        'es': "Filtrar BAN por código postal", 'pt': "Filtrar BAN por código postal",
         'de': "BAN nach Postleitzahl filtern"},
 }
 
@@ -252,26 +252,26 @@ class _BadgeLabel(QLabel):
 
 class AboutDialog(QDialog):
     _ABOUT_TR = {
-        'title': {'fr': "A propos", 'en': "About", 'es': "Acerca de",
-                  'pt': "Sobre", 'de': "Uber"},
+        'title': {'fr': "À propos", 'en': "About", 'es': "Acerca de",
+                  'pt': "Sobre", 'de': "Über"},
         'close': {'fr': "Fermer", 'en': "Close", 'es': "Cerrar",
-                  'pt': "Fechar", 'de': "Schliessen"},
+                  'pt': "Fechar", 'de': "Schließen"},
         'subtitle': {
             'fr': "La barre de recherche universelle de QGIS",
             'en': "The universal search bar for QGIS",
-            'es': "La barra de busqueda universal de QGIS",
+            'es': "La barra de búsqueda universal de QGIS",
             'pt': "A barra de pesquisa universal do QGIS",
-            'de': "Die universelle Suchleiste fuer QGIS"},
+            'de': "Die universelle Suchleiste für QGIS"},
         'description': {
             'fr': "Une seule barre pour tout retrouver dans QGIS : vous tapez, "
-                  "et le plugin interroge en meme temps le geocodeur d'adresses "
+                  "et le plugin interroge en même temps le géocodeur d'adresses "
                   "(BAN pour la France, OSM/Nominatim dans le monde entier) et "
                   "tous les champs de toutes les couches vectorielles du projet. "
-                  "Adresse, numero de regard, parcelle ou coordonnees brutes "
-                  "(WGS84 ou Lambert 93) : le plugin reconnait ce que vous "
-                  "cherchez et vous y emmene. L'indexation se fait en tache de "
-                  "fond, sans bloquer QGIS, et le resultat est conserve dans un "
-                  "cache compresse pose a cote du fichier projet.",
+                  "Adresse, numéro de regard, parcelle ou coordonnées brutes "
+                  "(WGS84 ou Lambert 93) : le plugin reconnaît ce que vous "
+                  "cherchez et vous y emmène. L'indexation se fait en tâche de "
+                  "fond, sans bloquer QGIS, et le résultat est conservé dans un "
+                  "cache compressé posé à côté du fichier projet.",
             'en': "One search bar to find anything in QGIS: as you type, the "
                   "plugin queries at the same time the address geocoder (BAN for "
                   "France, OSM/Nominatim worldwide) and every field of every "
@@ -284,27 +284,27 @@ class AboutDialog(QDialog):
                   "el complemento consulta a la vez el geocodificador de "
                   "direcciones (BAN en Francia, OSM/Nominatim en todo el mundo) y "
                   "todos los campos de todas las capas vectoriales del proyecto. "
-                  "Una direccion, un numero de elemento, una parcela o coordenadas "
+                  "Una dirección, un número de elemento, una parcela o coordenadas "
                   "en bruto (WGS84 o Lambert 93): el complemento reconoce lo que "
-                  "busca y le lleva alli. La indexacion se realiza en segundo "
-                  "plano, sin bloquear QGIS, y se conserva en una cache comprimida "
+                  "busca y le lleva allí. La indexación se realiza en segundo "
+                  "plano, sin bloquear QGIS, y se conserva en una caché comprimida "
                   "junto al archivo de proyecto.",
-            'pt': "Uma unica barra para encontrar tudo no QGIS: enquanto escreve, "
-                  "o modulo consulta ao mesmo tempo o geocodificador de enderecos "
-                  "(BAN em Franca, OSM/Nominatim em todo o mundo) e todos os "
-                  "campos de todas as camadas vetoriais do projeto. Um endereco, "
-                  "um numero de elemento, um predio ou coordenadas em bruto "
-                  "(WGS84 ou Lambert 93): o modulo reconhece o que procura e "
-                  "leva-o ate la. A indexacao decorre em segundo plano, sem "
-                  "bloquear o QGIS, e e guardada numa cache comprimida junto ao "
+            'pt': "Uma única barra para encontrar tudo no QGIS: enquanto escreve, "
+                  "o módulo consulta ao mesmo tempo o geocodificador de endereços "
+                  "(BAN em França, OSM/Nominatim em todo o mundo) e todos os "
+                  "campos de todas as camadas vetoriais do projeto. Um endereço, "
+                  "um número de elemento, um prédio ou coordenadas em bruto "
+                  "(WGS84 ou Lambert 93): o módulo reconhece o que procura e "
+                  "leva-o até lá. A indexação decorre em segundo plano, sem "
+                  "bloquear o QGIS, e é guardada numa cache comprimida junto ao "
                   "ficheiro de projeto.",
-            'de': "Eine einzige Leiste, um in QGIS alles zu finden: waehrend Sie "
+            'de': "Eine einzige Leiste, um in QGIS alles zu finden: während Sie "
                   "tippen, fragt die Erweiterung gleichzeitig den Adress-Geocoder "
-                  "(BAN fuer Frankreich, OSM/Nominatim weltweit) und alle Felder "
+                  "(BAN für Frankreich, OSM/Nominatim weltweit) und alle Felder "
                   "aller Vektorebenen des Projekts ab. Eine Adresse, eine "
-                  "Objektnummer, ein Flurstueck oder rohe Koordinaten (WGS84 oder "
+                  "Objektnummer, ein Flurstück oder rohe Koordinaten (WGS84 oder "
                   "Lambert 93): die Erweiterung erkennt, wonach Sie suchen, und "
-                  "bringt Sie dorthin. Die Indizierung laeuft im Hintergrund, ohne "
+                  "bringt Sie dorthin. Die Indizierung läuft im Hintergrund, ohne "
                   "QGIS zu blockieren, und wird in einem komprimierten Cache neben "
                   "der Projektdatei gespeichert."},
     }

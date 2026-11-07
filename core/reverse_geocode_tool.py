@@ -14,6 +14,7 @@ from qgis.gui import QgsMapToolEmitPoint
 from . import geo_actions
 from .qt_compat import event_pos
 from ..i18n import tr
+from ..providers import net_errors
 
 DEFAULT_RADIUS_M = 25
 
@@ -30,6 +31,9 @@ class ReverseGeocodeTool(QgsMapToolEmitPoint):
         self._rubber_band = None
         self._radius_m = DEFAULT_RADIUS_M
         self._provider.result_ready.connect(self._on_result)
+        # Sans reseau, "aucune adresse a moins de 25 m" serait faux : on dit
+        # que le BAN n'a pas repondu.
+        self._provider.failed.connect(self._on_failed)
 
     def set_radius(self, radius_m):
         self._radius_m = radius_m if radius_m and radius_m > 0 else DEFAULT_RADIUS_M
@@ -55,6 +59,9 @@ class ReverseGeocodeTool(QgsMapToolEmitPoint):
             return
 
         self.address_found.emit(data['label'])
+
+    def _on_failed(self, reason, status):
+        self.address_not_found.emit(net_errors.describe_inline('BAN', reason, status))
 
     def clear_marker(self):
         """Nettoyage explicite du repere (ex: a l'unload du plugin). Le repere

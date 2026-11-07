@@ -7,9 +7,12 @@ Respecte la politique Nominatim : 1 requete/s max, User-Agent obligatoire.
 import os
 import json
 import urllib.parse
+from functools import partial
 from qgis.PyQt.QtCore import QObject, QUrl, QTimer, pyqtSignal
-from qgis.PyQt.QtNetwork import QNetworkRequest, QNetworkReply
+from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.core import QgsMessageLog, QgsNetworkAccessManager, Qgis
+
+from . import net_errors
 
 
 NOMINATIM_URL = (
@@ -40,6 +43,7 @@ USER_AGENT = f'QGIS-MagicSearch/{_plugin_version()} (+https://github.com/Cartoyo
 
 class OsmProvider(QObject):
     results_ready = pyqtSignal(list)
+    failed = pyqtSignal(str, int)   # cause (net_errors), statut HTTP ou 0
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -55,19 +59,20 @@ class OsmProvider(QObject):
         self._enabled = enabled
 
     def search(self, query):
+        """Programme une requete ; False si Nominatim ne sera pas interroge
+        (desactive ou saisie trop courte)."""
         if not self._enabled or not query or len(query) < 3:
-            return
+            return False
         self._pending_query = query
         self._timer.start(DEBOUNCE_MS)
+        return True
 
     def cancel(self):
         self._timer.stop()
-        if self._reply and self._reply.isRunning():
-            self._reply.abort()
+        net_errors.abort_superseded(self._reply)
 
     def _do_request(self):
-        if self._reply and self._reply.isRunning():
-            self._reply.abort()
+        net_errors.abort_superseded(self._reply)
 
         url_str = NOMINATIM_URL.format(
             query=urllib.parse.quote(self._pending_query, safe='')
@@ -76,28 +81,26 @@ class OsmProvider(QObject):
         request = QNetworkRequest(url)
         request.setRawHeader(b'User-Agent', USER_AGENT.encode('utf-8'))
         request.setRawHeader(b'Accept-Language', b'fr,en')
-        self._reply = self._nam.get(request)
-        self._reply.finished.connect(self._on_finished)
+        reply = self._nam.get(request)
+        self._reply = reply
+        net_errors.arm_timeout(reply)
+        reply.finished.connect(partial(self._on_finished, reply))
 
-    def _on_finished(self):
-        reply = self._reply
-        if reply is None:
-            return
-
-        if reply.error() == QNetworkReply.NetworkError.OperationCanceledError:
-            # Requete abandonnee pour une saisie plus recente : normal.
-            reply.deleteLater()
+    def _on_finished(self, reply):
+        if reply is self._reply:
             self._reply = None
-            return
+        reply.deleteLater()
 
-        if reply.error() != QNetworkReply.NetworkError.NoError:
+        reason = net_errors.classify(reply)
+        if reason == net_errors.SUPERSEDED:
+            # Requete abandonnee pour une saisie plus recente : normal.
+            return
+        if reason:
             QgsMessageLog.logMessage(
-                f"OSM error: {reply.error()} - {reply.errorString()}",
+                f"OSM error ({reason}): {reply.error()} - {reply.errorString()}",
                 TAG, Qgis.MessageLevel.Warning
             )
-            reply.deleteLater()
-            self._reply = None
-            self.results_ready.emit([])
+            self.failed.emit(reason, net_errors.http_status(reply))
             return
 
         try:
@@ -114,13 +117,9 @@ class OsmProvider(QObject):
                     'lon': float(item.get('lon', 0)),
                     'lat': float(item.get('lat', 0)),
                 })
-
-            self.results_ready.emit(results)
-
         except Exception as e:
             QgsMessageLog.logMessage(f"OSM parse error: {e}", TAG, Qgis.MessageLevel.Warning)
-            self.results_ready.emit([])
+            self.failed.emit(net_errors.SERVICE, net_errors.http_status(reply))
+            return
 
-        finally:
-            reply.deleteLater()
-            self._reply = None
+        self.results_ready.emit(results)

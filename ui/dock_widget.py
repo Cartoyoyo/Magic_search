@@ -49,6 +49,7 @@ class MagicSearchDockWidget(PillMixin, QDockWidget):
         self._osm_results = []
         self._layer_results = []
         self._coord_results = []
+        self._geo_errors = {}
         self._rubber_band = None
         self._opacity = 100
 
@@ -78,6 +79,8 @@ class MagicSearchDockWidget(PillMixin, QDockWidget):
         # Signaux
         self._ban_provider.results_ready.connect(self._on_ban_results)
         self._osm_provider.results_ready.connect(self._on_osm_results)
+        self._ban_provider.failed.connect(self._on_ban_failed)
+        self._osm_provider.failed.connect(self._on_osm_failed)
         self._layer_provider.results_ready.connect(self._on_layer_results)
 
         self._index_debounce = QTimer()
@@ -175,6 +178,7 @@ class MagicSearchDockWidget(PillMixin, QDockWidget):
             self._osm_results = []
             self._layer_results = []
             self._coord_results = []
+            self._geo_errors = {}
             self._ban_provider.cancel()
             self._osm_provider.cancel()
             return
@@ -192,14 +196,14 @@ class MagicSearchDockWidget(PillMixin, QDockWidget):
             self._ban_results = []
             self._osm_results = []
             self._layer_results = []
+            self._geo_errors = {}
             self._coord_results = coords
             self._update_list()
             self._layer_search_debounce.start()
             return
 
         self._coord_results = []
-        self._ban_provider.search(text)
-        self._osm_provider.search(text)
+        self._search_geocoders(text)
         self._layer_search_debounce.start()
 
     def _do_layer_search(self):
@@ -209,10 +213,12 @@ class MagicSearchDockWidget(PillMixin, QDockWidget):
 
     def _on_ban_results(self, results):
         self._ban_results = results
+        self._geo_errors.pop('ban', None)
         self._update_list()
 
     def _on_osm_results(self, results):
         self._osm_results = results
+        self._geo_errors.pop('osm', None)
         self._update_list()
 
     def _on_layer_results(self, results):
@@ -232,7 +238,7 @@ class MagicSearchDockWidget(PillMixin, QDockWidget):
             self._ban_results, self._osm_results, self._layer_results,
             self._coord_results, query=text,
             center=geo_actions.canvas_center_lonlat(self._iface),
-            show_all=self._show_all
+            show_all=self._show_all, geo_errors=self._geo_errors
         )
         self._refresh_footer()
         self._adjust_dock_size()
@@ -324,6 +330,8 @@ class MagicSearchDockWidget(PillMixin, QDockWidget):
         for signal, slot in (
                 (self._ban_provider.results_ready, self._on_ban_results),
                 (self._osm_provider.results_ready, self._on_osm_results),
+                (self._ban_provider.failed, self._on_ban_failed),
+                (self._osm_provider.failed, self._on_osm_failed),
                 (self._layer_provider.results_ready, self._on_layer_results),
                 (self._index_manager.sync_state_changed, self._update_sync_style),
                 (self._index_manager.layer_ready, self._on_index_changed),

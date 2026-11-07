@@ -24,6 +24,7 @@ from ..core import geo_actions
 from ..core.street_view_tool import SERVICE_LABELS, COPY_COORDS
 from ..core.coord_parser import coordinate_candidates, to_lonlat as coord_to_lonlat
 from ..core.index_manager import normalize_text, _query_words
+from ..providers import net_errors
 from ..i18n import tr, current_lang
 
 TAG = 'Magic Search'
@@ -441,6 +442,40 @@ class ExpandItem(QFrame):
         super().mousePressEvent(event)
 
 
+class NoticeItem(QFrame):
+    """Geocodeur injoignable : une ligne d'avertissement a la place de ses
+    reponses (titre + cause). Ni cliquable, ni selectionnable au clavier, ni
+    comptee dans le pied de liste."""
+
+    def __init__(self, title, detail, parent=None, opacity=100, metrics=None):
+        super().__init__(parent)
+        row_h, f_main, f_sub, inline = metrics or _row_metrics(1)
+        self.setObjectName('noticeItem')
+        self.setFixedHeight(row_h)
+        alpha = int(255 * (opacity / 100.0))
+        self.setStyleSheet(f"""
+            #noticeItem {{
+                background: rgba(255, 247, 237, {alpha});
+                border-left: 3px solid {VC_ORANGE};
+                border-bottom: 1px solid #f1f5f9;
+            }}
+        """)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(10, 1, 10, 1)
+        col = QHBoxLayout() if inline else QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(8 if inline else 0)
+        lbl_main = QLabel('\u26a0 ' + title)
+        lbl_main.setStyleSheet(f'color: #9a3412; font-size: {f_main}px; font-weight: 600; border: none; background: transparent;')
+        lbl_sub = QLabel(detail[:1].upper() + detail[1:])
+        lbl_sub.setStyleSheet(f'color: {COLOR_MUTED}; font-size: {f_sub}px; border: none; background: transparent;')
+        for lbl in (lbl_main, lbl_sub):
+            lbl.setTextFormat(Qt.TextFormat.PlainText)
+            lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            col.addWidget(lbl)
+        row.addLayout(col, 1)
+
+
 # ============================================================
 # Liste de resultats (carte separee sous la barre)
 # ============================================================
@@ -534,7 +569,10 @@ class DropdownWidget(QFrame):
                                    values=_fmt_count(values)))
 
     def show_results(self, ban_results, osm_results, layer_results,
-                     coord_results=(), query='', center=None, show_all=False):
+                     coord_results=(), query='', center=None, show_all=False,
+                     geo_errors=None):
+        """`geo_errors` : {'ban'|'osm': (cause, statut HTTP)} pour un
+        geocodeur qui n'a pas pu repondre (voir providers/net_errors)."""
         self._clear()
         limit = ROWS_ALL if show_all else ROWS_COMPACT
         shown = 0
@@ -546,6 +584,11 @@ class DropdownWidget(QFrame):
             rows.append(('item', {**coord, 'source': 'coord'}))
             shown += 1
         for source, results in (('ban', ban_results), ('osm', osm_results)):
+            if geo_errors and source in geo_errors:
+                # Geocodeur injoignable : sans cette ligne, la panne passait
+                # pour une adresse introuvable.
+                rows.append(('notice', source, geo_errors[source]))
+                continue
             for r in results:
                 if shown >= limit:
                     break
@@ -578,8 +621,16 @@ class DropdownWidget(QFrame):
         row_h, f_main, f_sub, _inline = metrics
         expand_h = max(18, row_h - 8)
         rows_h = 0
+        notices = 0
         for row in rows:
-            if row[0] == 'item':
+            if row[0] == 'notice':
+                title, detail = net_errors.describe(row[1].upper(), *row[2])
+                notice = NoticeItem(title, detail, opacity=self._opacity, metrics=metrics)
+                self._rows_layout.addWidget(notice)
+                self._widgets.append(notice)
+                rows_h += row_h
+                notices += 1
+            elif row[0] == 'item':
                 item = ResultItem(row[1], query=query, center=center,
                                   opacity=self._opacity, metrics=metrics)
                 item.clicked.connect(self.result_clicked.emit)
@@ -597,12 +648,12 @@ class DropdownWidget(QFrame):
                 self._widgets.append(expand)
                 rows_h += expand_h
 
-        if not self._widgets:
+        if len(self._widgets) == notices:
             lbl = QLabel(tr('no_results'))
             lbl.setStyleSheet(f'color: {COLOR_MUTED}; font-size: 11px; padding: 8px 14px; background: transparent;')
             self._rows_layout.addWidget(lbl)
             self._widgets.append(lbl)
-            rows_h = 34
+            rows_h += 34
 
         if total > shown:
             self._lbl_count.setText('%s · %s' % (tr('footer_count', shown=shown, total=total),
@@ -986,6 +1037,27 @@ class PillMixin:
         """)
         self._refresh_footer()
 
+    # ---- Geocodeur injoignable ----
+
+    def _on_ban_failed(self, reason, status):
+        self._ban_results = []
+        self._geo_errors['ban'] = (reason, status)
+        self._refresh_list()
+
+    def _on_osm_failed(self, reason, status):
+        self._osm_results = []
+        self._geo_errors['osm'] = (reason, status)
+        self._refresh_list()
+
+    def _search_geocoders(self, text):
+        """Interroge BAN et OSM. L'avertissement d'un geocodeur relance reste
+        affiche jusqu'a sa reponse (pas de clignotement a chaque touche) ;
+        celui d'un geocodeur qui ne sera pas interroge (desactive, saisie
+        trop courte) disparait."""
+        for source, provider in (('ban', self._ban_provider), ('osm', self._osm_provider)):
+            if not provider.search(text):
+                self._geo_errors.pop(source, None)
+
     def _refresh_footer(self):
         """Pied de liste : etat, part des couches indexees, volume."""
         layers, values, total = self._index_manager.stats()
@@ -1061,6 +1133,7 @@ class MagicSearchWidget(PillMixin, QDialog):
         self._osm_results = []
         self._layer_results = []
         self._coord_results = []
+        self._geo_errors = {}
         self._collapsed = False
         self._custom_pos = None
         self._dragging = False
@@ -1116,6 +1189,8 @@ class MagicSearchWidget(PillMixin, QDialog):
 
         self._ban_provider.results_ready.connect(self._on_ban_results)
         self._osm_provider.results_ready.connect(self._on_osm_results)
+        self._ban_provider.failed.connect(self._on_ban_failed)
+        self._osm_provider.failed.connect(self._on_osm_failed)
         self._layer_provider.results_ready.connect(self._on_layer_results)
         # Methode liee et non lambda : Qt coupe d'office une connexion vers
         # une methode d'un widget detruit, pas vers une lambda (apres une
@@ -1421,6 +1496,7 @@ class MagicSearchWidget(PillMixin, QDialog):
             self._osm_results = []
             self._layer_results = []
             self._coord_results = []
+            self._geo_errors = {}
             self._ban_provider.cancel()
             self._osm_provider.cancel()
             return
@@ -1438,14 +1514,14 @@ class MagicSearchWidget(PillMixin, QDialog):
             self._ban_results = []
             self._osm_results = []
             self._layer_results = []
+            self._geo_errors = {}
             self._coord_results = coords
             self._update_dropdown()
             self._layer_search_debounce.start()
             return
 
         self._coord_results = []
-        self._ban_provider.search(text)
-        self._osm_provider.search(text)
+        self._search_geocoders(text)
         self._layer_search_debounce.start()
 
     def _do_layer_search(self):
@@ -1455,10 +1531,12 @@ class MagicSearchWidget(PillMixin, QDialog):
 
     def _on_ban_results(self, results):
         self._ban_results = results
+        self._geo_errors.pop('ban', None)
         self._update_dropdown()
 
     def _on_osm_results(self, results):
         self._osm_results = results
+        self._geo_errors.pop('osm', None)
         self._update_dropdown()
 
     def _on_layer_results(self, results):
@@ -1476,7 +1554,7 @@ class MagicSearchWidget(PillMixin, QDialog):
             self._ban_results, self._osm_results, self._layer_results,
             self._coord_results, query=text,
             center=geo_actions.canvas_center_lonlat(self._iface),
-            show_all=self._show_all
+            show_all=self._show_all, geo_errors=self._geo_errors
         )
         self._refresh_footer()
         self.adjustSize()
@@ -1560,6 +1638,8 @@ class MagicSearchWidget(PillMixin, QDialog):
         for signal, slot in (
                 (self._ban_provider.results_ready, self._on_ban_results),
                 (self._osm_provider.results_ready, self._on_osm_results),
+                (self._ban_provider.failed, self._on_ban_failed),
+                (self._osm_provider.failed, self._on_osm_failed),
                 (self._layer_provider.results_ready, self._on_layer_results),
                 (self._index_manager.sync_state_changed, self._update_sync_style),
                 (self._index_manager.indexing_started, self._on_indexing_started),

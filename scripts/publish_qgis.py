@@ -18,7 +18,8 @@ import xmlrpc.client
 PLUGIN_NAME = 'magic_search'
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 METADATA_PATH = os.path.join(REPO_ROOT, 'metadata.txt')
-EXCLUDE_DIRS = {'.git', '.github', '__pycache__', 'tests', 'scripts'}
+# screenshot/ : captures du README, inutiles dans le plugin installe
+EXCLUDE_DIRS = {'.git', '.github', '__pycache__', 'tests', 'scripts', 'screenshot'}
 EXCLUDE_FILES = {'.gitignore'}
 # Documentation de developpement : inutile dans le plugin installe
 EXCLUDE_SUFFIXES = ('.pyc', '.zip', '.d2', '.svg')

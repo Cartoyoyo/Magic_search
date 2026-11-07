@@ -19,23 +19,23 @@ TR = {
     'placeholder': {
         'fr': "Rechercher une adresse, une parcelle...",
         'en': "Search an address, a parcel...",
-        'es': "Buscar una direccion, una parcela...",
-        'pt': "Pesquisar um endereco, uma parcela...",
-        'de': "Adresse, Flurstuck suchen..."},
+        'es': "Buscar una dirección, una parcela...",
+        'pt': "Pesquisar um endereço, uma parcela...",
+        'de': "Adresse, Flurstück suchen..."},
     'tip_clear': {
         'fr': "Effacer",
         'en': "Clear",
         'es': "Borrar",
         'pt': "Limpar",
-        'de': "Loschen"},
+        'de': "Löschen"},
     'tip_config': {
         'fr': "Configuration",
         'en': "Settings",
-        'es': "Configuracion",
-        'pt': "Configuracao",
+        'es': "Configuración",
+        'pt': "Configuração",
         'de': "Einstellungen"},
     'tip_collapse': {
-        'fr': "Reduire",
+        'fr': "Réduire",
         'en': "Collapse",
         'es': "Reducir",
         'pt': "Reduzir",
@@ -43,33 +43,33 @@ TR = {
 
     # ---- Bouton de synchronisation ----
     'tip_sync_never': {
-        'fr': "Aucune couche indexee - cliquez pour synchroniser",
+        'fr': "Aucune couche indexée - cliquez pour synchroniser",
         'en': "No layer indexed - click to sync",
         'es': "Ninguna capa indexada - haga clic para sincronizar",
         'pt': "Nenhuma camada indexada - clique para sincronizar",
         'de': "Keine Ebene indiziert - zum Synchronisieren klicken"},
     'tip_sync_partial': {
-        'fr': "Synchronisation incomplete - cliquez pour synchroniser",
+        'fr': "Synchronisation incomplète - cliquez pour synchroniser",
         'en': "Incomplete sync - click to sync",
-        'es': "Sincronizacion incompleta - haga clic para sincronizar",
-        'pt': "Sincronizacao incompleta - clique para sincronizar",
-        'de': "Unvollstandige Synchronisierung - zum Synchronisieren klicken"},
+        'es': "Sincronización incompleta - haga clic para sincronizar",
+        'pt': "Sincronização incompleta - clique para sincronizar",
+        'de': "Unvollständige Synchronisierung - zum Synchronisieren klicken"},
     'tip_sync_syncing': {
         'fr': "Synchronisation en cours...",
         'en': "Syncing...",
-        'es': "Sincronizacion en curso...",
-        'pt': "Sincronizacao em curso...",
-        'de': "Synchronisierung lauft..."},
+        'es': "Sincronización en curso...",
+        'pt': "Sincronização em curso...",
+        'de': "Synchronisierung läuft..."},
     'tip_sync_complete': {
-        'fr': "Synchronisation complete",
+        'fr': "Synchronisation complète",
         'en': "Sync complete",
-        'es': "Sincronizacion completa",
-        'pt': "Sincronizacao completa",
+        'es': "Sincronización completa",
+        'pt': "Sincronização completa",
         'de': "Synchronisierung abgeschlossen"},
 
     # ---- Resultats ----
     'no_results': {
-        'fr': "Aucun resultat",
+        'fr': "Aucun résultat",
         'en': "No result",
         'es': "Sin resultados",
         'pt': "Sem resultados",
@@ -77,7 +77,7 @@ TR = {
     'expand_more': {
         'fr': "... {count} autre(s) - zoom global",
         'en': "... {count} more - zoom to all",
-        'es': "... {count} mas - zoom global",
+        'es': "... {count} más - zoom global",
         'pt': "... {count} mais - zoom global",
         'de': "... {count} weitere - Gesamtansicht"},
 
@@ -87,17 +87,17 @@ TR = {
               "(des ralentissements sont possibles)",
         'en': "Indexing in progress... please wait a moment "
               "(slowdowns are possible)",
-        'es': "Indexacion en curso... espere un momento "
+        'es': "Indexación en curso... espere un momento "
               "(son posibles ralentizaciones)",
-        'pt': "Indexacao em curso... aguarde um momento "
-              "(sao possiveis lentidoes)",
-        'de': "Indizierung lauft... bitte einen Moment Geduld "
-              "(Verlangsamungen sind moglich)"},
+        'pt': "Indexação em curso... aguarde um momento "
+              "(são possíveis lentidões)",
+        'de': "Indizierung läuft... bitte einen Moment Geduld "
+              "(Verlangsamungen sind möglich)"},
     'status_progress': {
-        'fr': "Indexation : {layer} ({count} entites)",
+        'fr': "Indexation : {layer} ({count} entités)",
         'en': "Indexing: {layer} ({count} features)",
-        'es': "Indexacion: {layer} ({count} entidades)",
-        'pt': "Indexacao: {layer} ({count} entidades)",
+        'es': "Indexación: {layer} ({count} entidades)",
+        'pt': "Indexação: {layer} ({count} entidades)",
         'de': "Indizierung: {layer} ({count} Objekte)"},
 
     # ---- Menu / barre d'outils QGIS ----
@@ -110,22 +110,22 @@ TR = {
     'menu_config': {
         'fr': "Magic Search - Configuration",
         'en': "Magic Search - Settings",
-        'es': "Magic Search - Configuracion",
-        'pt': "Magic Search - Configuracao",
+        'es': "Magic Search - Configuración",
+        'pt': "Magic Search - Configuração",
         'de': "Magic Search - Einstellungen"},
     'tip_reverse_geocode': {
         'fr': "Adresse BAN la plus proche (cliquer sur la carte)",
         'en': "Nearest BAN address (click on the map)",
-        'es': "Direccion BAN mas cercana (clic en el mapa)",
-        'pt': "Endereco BAN mais proximo (clique no mapa)",
-        'de': "Nachste BAN-Adresse (auf die Karte klicken)"},
+        'es': "Dirección BAN más cercana (clic en el mapa)",
+        'pt': "Endereço BAN mais próximo (clique no mapa)",
+        'de': "Nächste BAN-Adresse (auf die Karte klicken)"},
 
     # ---- Geocodage inverse ----
     'msg_reverse_none': {
-        'fr': "Aucune adresse BAN a moins de {max} m",
+        'fr': "Aucune adresse BAN à moins de {max} m",
         'en': "No BAN address within {max} m",
-        'es': "Ninguna direccion BAN a menos de {max} m",
-        'pt': "Nenhum endereco BAN a menos de {max} m",
+        'es': "Ninguna dirección BAN a menos de {max} m",
+        'pt': "Nenhum endereço BAN a menos de {max} m",
         'de': "Keine BAN-Adresse innerhalb von {max} m"},
 
     # ---- Vue de rue ----
@@ -133,22 +133,22 @@ TR = {
         'fr': "Vue de rue (choisir un service puis cliquer sur la carte)",
         'en': "Street view (pick a service then click on the map)",
         'es': "Vista de calle (elija un servicio y haga clic en el mapa)",
-        'pt': "Vista de rua (escolha um servico e clique no mapa)",
-        'de': "Strassenansicht (Dienst waehlen, dann auf die Karte klicken)"},
+        'pt': "Vista de rua (escolha um serviço e clique no mapa)",
+        'de': "Straßenansicht (Dienst wählen, dann auf die Karte klicken)"},
     'msg_street_view_prompt': {
         'fr': "Cliquez sur la carte pour ouvrir {service}",
         'en': "Click on the map to open {service}",
         'es': "Haga clic en el mapa para abrir {service}",
         'pt': "Clique no mapa para abrir {service}",
-        'de': "Klicken Sie auf die Karte, um {service} zu oeffnen"},
+        'de': "Klicken Sie auf die Karte, um {service} zu öffnen"},
     'menu_copy_coords': {
-        'fr': "Copier les coordonnees",
+        'fr': "Copier les coordonnées",
         'en': "Copy coordinates",
         'es': "Copiar coordenadas",
         'pt': "Copiar coordenadas",
         'de': "Koordinaten kopieren"},
     'msg_copy_coords_prompt': {
-        'fr': "Cliquez sur la carte pour copier ses coordonnees",
+        'fr': "Cliquez sur la carte pour copier ses coordonnées",
         'en': "Click on the map to copy its coordinates",
         'es': "Haga clic en el mapa para copiar sus coordenadas",
         'pt': "Clique no mapa para copiar as coordenadas",
@@ -156,19 +156,19 @@ TR = {
     'tip_more': {
         'fr': "Plus d'outils (favoris, historique)",
         'en': "More tools (favorites, history)",
-        'es': "Mas herramientas (favoritos, historial)",
-        'pt': "Mais ferramentas (favoritos, historico)",
+        'es': "Más herramientas (favoritos, historial)",
+        'pt': "Mais ferramentas (favoritos, histórico)",
         'de': "Weitere Werkzeuge (Favoriten, Verlauf)"},
     'tip_history': {
-        'fr': "Recherches recentes",
+        'fr': "Recherches récentes",
         'en': "Recent searches",
-        'es': "Busquedas recientes",
+        'es': "Búsquedas recientes",
         'pt': "Pesquisas recentes",
         'de': "Letzte Suchen"},
     'history_empty': {
-        'fr': "(aucune recherche recente)",
+        'fr': "(aucune recherche récente)",
         'en': "(no recent search)",
-        'es': "(sin busquedas recientes)",
+        'es': "(sin búsquedas recientes)",
         'pt': "(sem pesquisas recentes)",
         'de': "(keine letzten Suchen)"},
     'tip_favorites': {
@@ -180,9 +180,9 @@ TR = {
     'menu_add_favorite': {
         'fr': "Ajouter un favori ici...",
         'en': "Add a favorite here...",
-        'es': "Agregar un favorito aqui...",
+        'es': "Agregar un favorito aquí...",
         'pt': "Adicionar um favorito aqui...",
-        'de': "Favorit hier hinzufuegen..."},
+        'de': "Favorit hier hinzufügen..."},
     'menu_remove_favorite': {
         'fr': "Supprimer un favori",
         'en': "Remove a favorite",
@@ -214,7 +214,7 @@ TR = {
         'pt': "Clique no mapa para guardar um favorito",
         'de': "Klicken Sie auf die Karte, um einen Favoriten zu speichern"},
     'msg_favorite_saved': {
-        'fr': "Favori \"{label}\" enregistre",
+        'fr': "Favori \"{label}\" enregistré",
         'en': "Favorite \"{label}\" saved",
         'es': "Favorito \"{label}\" guardado",
         'pt': "Favorito \"{label}\" guardado",
@@ -222,57 +222,57 @@ TR = {
     'tag_coord': {
         'fr': "COORD", 'en': "COORD", 'es': "COORD", 'pt': "COORD", 'de': "KOORD"},
     'msg_coords_copied': {
-        'fr': "Coordonnees copiees dans le presse-papiers",
+        'fr': "Coordonnées copiées dans le presse-papiers",
         'en': "Coordinates copied to clipboard",
         'es': "Coordenadas copiadas al portapapeles",
-        'pt': "Coordenadas copiadas para a area de transferencia",
+        'pt': "Coordenadas copiadas para a área de transferência",
         'de': "Koordinaten in die Zwischenablage kopiert"},
 
     # ---- Barre flottante (modele M2c) ----
     'scope_checked': {
-        'fr': "Cochees", 'en': "Visible", 'es': "Visibles", 'pt': "Visiveis", 'de': "Sichtbar"},
+        'fr': "Cochées", 'en': "Visible", 'es': "Visibles", 'pt': "Visíveis", 'de': "Sichtbar"},
     'scope_all': {
         'fr': "Toutes", 'en': "All", 'es': "Todas", 'pt': "Todas", 'de': "Alle"},
     'tip_scope': {
-        'fr': "Perimetre de la recherche dans les couches",
+        'fr': "Périmètre de la recherche dans les couches",
         'en': "Layer search scope",
-        'es': "Alcance de la busqueda en las capas",
-        'pt': "Ambito da pesquisa nas camadas",
+        'es': "Alcance de la búsqueda en las capas",
+        'pt': "Âmbito da pesquisa nas camadas",
         'de': "Suchbereich in den Layern"},
     'menu_scope_checked': {
-        'fr': "Couches cochees", 'en': "Checked layers", 'es': "Capas marcadas",
+        'fr': "Couches cochées", 'en': "Checked layers", 'es': "Capas marcadas",
         'pt': "Camadas marcadas", 'de': "Aktivierte Layer"},
     'menu_scope_all': {
         'fr': "Toutes les couches", 'en': "All layers", 'es': "Todas las capas",
         'pt': "Todas as camadas", 'de': "Alle Layer"},
     'menu_reverse': {
         'fr': "Adresse au clic sur la carte", 'en': "Address at map click",
-        'es': "Direccion al hacer clic en el mapa", 'pt': "Endereco ao clicar no mapa",
+        'es': "Dirección al hacer clic en el mapa", 'pt': "Endereço ao clicar no mapa",
         'de': "Adresse per Klick auf die Karte"},
     'tip_reverse_active': {
-        'fr': "Adresse au clic active - cliquer pour arreter",
+        'fr': "Adresse au clic active - cliquer pour arrêter",
         'en': "Address at click is on - click to stop",
         'es': "Direccion al clic activa - clic para detener",
         'pt': "Endereco ao clique ativo - clique para parar",
         'de': "Adresse per Klick aktiv - zum Beenden klicken"},
     'menu_street_view': {
         'fr': "Vue de rue", 'en': "Street view", 'es': "Vista de calle",
-        'pt': "Vista de rua", 'de': "Strassenansicht"},
+        'pt': "Vista de rua", 'de': "Straßenansicht"},
     'menu_collapse': {
         'fr': "Replier la barre", 'en': "Collapse the bar", 'es': "Plegar la barra",
         'pt': "Recolher a barra", 'de': "Leiste einklappen"},
     'sub_address': {
-        'fr': "Adresse", 'en': "Address", 'es': "Direccion", 'pt': "Endereco", 'de': "Adresse"},
+        'fr': "Adresse", 'en': "Address", 'es': "Dirección", 'pt': "Endereço", 'de': "Adresse"},
     'ban_housenumber': {
-        'fr': "numero", 'en': "house number", 'es': "numero", 'pt': "numero", 'de': "Hausnummer"},
+        'fr': "numéro", 'en': "house number", 'es': "número", 'pt': "número", 'de': "Hausnummer"},
     'ban_street': {
-        'fr': "voie", 'en': "street", 'es': "via", 'pt': "via", 'de': "Strasse"},
+        'fr': "voie", 'en': "street", 'es': "vía", 'pt': "via", 'de': "Straße"},
     'ban_locality': {
         'fr': "lieu-dit", 'en': "locality", 'es': "paraje", 'pt': "lugar", 'de': "Flurname"},
     'ban_municipality': {
-        'fr': "commune", 'en': "municipality", 'es': "municipio", 'pt': "municipio", 'de': "Gemeinde"},
+        'fr': "commune", 'en': "municipality", 'es': "municipio", 'pt': "município", 'de': "Gemeinde"},
     'sub_coord': {
-        'fr': "Coordonnees", 'en': "Coordinates", 'es': "Coordenadas",
+        'fr': "Coordonnées", 'en': "Coordinates", 'es': "Coordenadas",
         'pt': "Coordenadas", 'de': "Koordinaten"},
     'count_objects': {
         'fr': "{n} obj.", 'en': "{n} feat.", 'es': "{n} obj.", 'pt': "{n} obj.", 'de': "{n} Obj."},
@@ -283,20 +283,20 @@ TR = {
         'fr': "Tab tout voir", 'en': "Tab show all", 'es': "Tab ver todo",
         'pt': "Tab ver tudo", 'de': "Tab alle zeigen"},
     'footer_less': {
-        'fr': "Tab reduire", 'en': "Tab show less", 'es': "Tab ver menos",
+        'fr': "Tab réduire", 'en': "Tab show less", 'es': "Tab ver menos",
         'pt': "Tab ver menos", 'de': "Tab weniger"},
     'state_never': {
-        'fr': "Index a creer", 'en': "No index yet", 'es': "Indice por crear",
-        'pt': "Indice por criar", 'de': "Kein Index"},
+        'fr': "Index à créer", 'en': "No index yet", 'es': "Índice por crear",
+        'pt': "Índice por criar", 'de': "Kein Index"},
     'state_partial': {
-        'fr': "Index incomplet", 'en': "Index incomplete", 'es': "Indice incompleto",
-        'pt': "Indice incompleto", 'de': "Index unvollstandig"},
+        'fr': "Index incomplet", 'en': "Index incomplete", 'es': "Índice incompleto",
+        'pt': "Índice incompleto", 'de': "Index unvollständig"},
     'state_syncing': {
         'fr': "Indexation...", 'en': "Indexing...", 'es': "Indexando...",
         'pt': "A indexar...", 'de': "Indizierung..."},
     'state_complete': {
-        'fr': "Index a jour", 'en': "Index up to date", 'es': "Indice al dia",
-        'pt': "Indice atualizado", 'de': "Index aktuell"},
+        'fr': "Index à jour", 'en': "Index up to date", 'es': "Índice al día",
+        'pt': "Índice atualizado", 'de': "Index aktuell"},
     'footer_stats': {
         'fr': "{layers} couche(s) · {values} valeurs",
         'en': "{layers} layer(s) · {values} values",
@@ -304,18 +304,44 @@ TR = {
         'pt': "{layers} camada(s) · {values} valores",
         'de': "{layers} Layer · {values} Werte"},
 
+    # ---- Geocodeur injoignable (ligne d'avertissement de la liste) ----
+    'geo_unavailable': {
+        'fr': "{source} indisponible",
+        'en': "{source} unavailable",
+        'es': "{source} no disponible",
+        'pt': "{source} indisponível",
+        'de': "{source} nicht erreichbar"},
+    'geo_err_offline': {
+        'fr': "pas de connexion réseau",
+        'en': "no network connection",
+        'es': "sin conexión de red",
+        'pt': "sem ligação à rede",
+        'de': "keine Netzwerkverbindung"},
+    'geo_err_timeout': {
+        'fr': "pas de réponse (délai dépassé)",
+        'en': "no answer (timed out)",
+        'es': "sin respuesta (tiempo agotado)",
+        'pt': "sem resposta (tempo esgotado)",
+        'de': "keine Antwort (Zeitüberschreitung)"},
+    'geo_err_service': {
+        'fr': "le service a renvoyé une erreur",
+        'en': "the service returned an error",
+        'es': "el servicio devolvió un error",
+        'pt': "o serviço devolveu um erro",
+        'de': "der Dienst meldet einen Fehler"},
+
     # ---- Etat du cache (dialogue de configuration) ----
     'cache_not_created': {
-        'fr': "(pas encore cree)",
+        'fr': "(pas encore créé)",
         'en': "(not created yet)",
-        'es': "(aun no creado)",
-        'pt': "(ainda nao criado)",
+        'es': "(aún no creado)",
+        'pt': "(ainda não criado)",
         'de': "(noch nicht erstellt)"},
     'cache_no_project': {
-        'fr': "(projet non enregistre)",
+        'fr': "(projet non enregistré)",
         'en': "(project not saved)",
         'es': "(proyecto no guardado)",
-        'pt': "(projeto nao guardado)",
+        'pt': "(projeto não guardado)",
         'de': "(Projekt nicht gespeichert)"},
 }
 

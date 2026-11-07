@@ -5,9 +5,12 @@ Utilise QgsNetworkAccessManager (pas de fenetre parasite SSL/proxy).
 
 import json
 import urllib.parse
+from functools import partial
 from qgis.PyQt.QtCore import QObject, QUrl, QTimer, pyqtSignal
-from qgis.PyQt.QtNetwork import QNetworkRequest, QNetworkReply
+from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.core import QgsMessageLog, QgsNetworkAccessManager, Qgis
+
+from . import net_errors
 
 
 BAN_URL = 'https://api-adresse.data.gouv.fr/search/?q={query}&limit=3'
@@ -18,6 +21,7 @@ TAG = 'Magic Search'
 
 class BanProvider(QObject):
     results_ready = pyqtSignal(list)
+    failed = pyqtSignal(str, int)   # cause (net_errors), statut HTTP ou 0
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -46,20 +50,21 @@ class BanProvider(QObject):
         self._postcode_filter = (postcode or '').strip()
 
     def search(self, query):
+        """Programme une requete ; False si le BAN ne sera pas interroge
+        (desactive ou saisie trop courte)."""
         if not self._enabled or not query or len(query) < 3:
-            return
+            return False
         self._pending_query = query
         self._timer.start(DEBOUNCE_MS)
+        return True
 
     def cancel(self):
         self._timer.stop()
-        if self._reply and self._reply.isRunning():
-            self._reply.abort()
+        net_errors.abort_superseded(self._reply)
 
     def _do_request(self):
         # Annuler la requete precedente si elle tourne encore
-        if self._reply and self._reply.isRunning():
-            self._reply.abort()
+        net_errors.abort_superseded(self._reply)
 
         url_str = BAN_URL.format(query=urllib.parse.quote(self._pending_query, safe=''))
         if self._postcode_filter:
@@ -71,29 +76,29 @@ class BanProvider(QObject):
             url_str += '&lon=%.5f&lat=%.5f' % focus
         url = QUrl(url_str)
         request = QNetworkRequest(url)
-        self._reply = self._nam.get(request)
-        self._reply.finished.connect(self._on_finished)
+        reply = self._nam.get(request)
+        self._reply = reply
+        net_errors.arm_timeout(reply)
+        # La reponse est passee au gestionnaire : une reponse abandonnee qui
+        # arrive apres la suivante ne doit pas etre confondue avec elle.
+        reply.finished.connect(partial(self._on_finished, reply))
 
-    def _on_finished(self):
-        reply = self._reply
-        if reply is None:
-            return
+    def _on_finished(self, reply):
+        if reply is self._reply:
+            self._reply = None
+        reply.deleteLater()
 
-        if reply.error() == QNetworkReply.NetworkError.OperationCanceledError:
+        reason = net_errors.classify(reply)
+        if reason == net_errors.SUPERSEDED:
             # Requete abandonnee pour une saisie plus recente (ou un champ
             # efface) : c'est le fonctionnement normal, pas une erreur.
-            reply.deleteLater()
-            self._reply = None
             return
-
-        if reply.error() != QNetworkReply.NetworkError.NoError:
+        if reason:
             QgsMessageLog.logMessage(
-                f"BAN error: {reply.error()} - {reply.errorString()}",
+                f"BAN error ({reason}): {reply.error()} - {reply.errorString()}",
                 TAG, Qgis.MessageLevel.Warning
             )
-            reply.deleteLater()
-            self._reply = None
-            self.results_ready.emit([])
+            self.failed.emit(reason, net_errors.http_status(reply))
             return
 
         try:
@@ -114,16 +119,14 @@ class BanProvider(QObject):
                     'lon': coords[0],
                     'lat': coords[1],
                 })
-
-            self.results_ready.emit(results)
-
         except Exception as e:
+            # Reponse illisible (page d'erreur d'un proxy, JSON tronque) :
+            # le service est la, mais inutilisable.
             QgsMessageLog.logMessage(f"BAN parse error: {e}", TAG, Qgis.MessageLevel.Warning)
-            self.results_ready.emit([])
+            self.failed.emit(net_errors.SERVICE, net_errors.http_status(reply))
+            return
 
-        finally:
-            reply.deleteLater()
-            self._reply = None
+        self.results_ready.emit(results)
 
 
 class BanReverseProvider(QObject):
@@ -131,6 +134,7 @@ class BanReverseProvider(QObject):
     Utilise pour l'outil "?" de la barre d'outils (clic sur la carte)."""
 
     result_ready = pyqtSignal(dict)
+    failed = pyqtSignal(str, int)   # cause (net_errors), statut HTTP ou 0
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -138,33 +142,30 @@ class BanReverseProvider(QObject):
         self._reply = None
 
     def reverse(self, lon, lat):
-        if self._reply and self._reply.isRunning():
-            self._reply.abort()
+        net_errors.abort_superseded(self._reply)
 
         url_str = BAN_REVERSE_URL.format(lon=lon, lat=lat)
         request = QNetworkRequest(QUrl(url_str))
-        self._reply = self._nam.get(request)
-        self._reply.finished.connect(self._on_finished)
+        reply = self._nam.get(request)
+        self._reply = reply
+        net_errors.arm_timeout(reply)
+        reply.finished.connect(partial(self._on_finished, reply))
 
-    def _on_finished(self):
-        reply = self._reply
-        if reply is None:
-            return
-
-        if reply.error() == QNetworkReply.NetworkError.OperationCanceledError:
-            # Second clic avant la reponse du premier : seul le dernier compte.
-            reply.deleteLater()
+    def _on_finished(self, reply):
+        if reply is self._reply:
             self._reply = None
-            return
+        reply.deleteLater()
 
-        if reply.error() != QNetworkReply.NetworkError.NoError:
+        reason = net_errors.classify(reply)
+        if reason == net_errors.SUPERSEDED:
+            # Second clic avant la reponse du premier : seul le dernier compte.
+            return
+        if reason:
             QgsMessageLog.logMessage(
-                f"BAN reverse error: {reply.error()} - {reply.errorString()}",
+                f"BAN reverse error ({reason}): {reply.error()} - {reply.errorString()}",
                 TAG, Qgis.MessageLevel.Warning
             )
-            reply.deleteLater()
-            self._reply = None
-            self.result_ready.emit({})
+            self.failed.emit(reason, net_errors.http_status(reply))
             return
 
         try:
@@ -189,8 +190,4 @@ class BanReverseProvider(QObject):
 
         except Exception as e:
             QgsMessageLog.logMessage(f"BAN reverse parse error: {e}", TAG, Qgis.MessageLevel.Warning)
-            self.result_ready.emit({})
-
-        finally:
-            reply.deleteLater()
-            self._reply = None
+            self.failed.emit(net_errors.SERVICE, net_errors.http_status(reply))
